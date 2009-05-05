@@ -7,7 +7,9 @@ StaticLibrary('server',
    'server.cpp',
    'server.hpp'])
 
-Program('posix_main.cpp',
+Program(
+  target = 'httpd',
+  source = ['posix_main.cpp'],
   LIBS = [
           'server',
           'gflags',
