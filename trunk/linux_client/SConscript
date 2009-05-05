@@ -1,0 +1,11 @@
+Program(
+  target = 'client',
+  source = ['sync_client.cpp'],
+  LIBS = [
+          'glog',
+          'gflags',
+	  'pcre',
+	  'pcrecpp',
+	  'pthread',
+	  'boost_system-gcc40-mt',
+	  'boost_thread-gcc40-mt'])
