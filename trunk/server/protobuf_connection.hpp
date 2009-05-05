@@ -1,5 +1,6 @@
 #ifndef NET2_PROTOBUF_CONNECTION_HPP_
 #define NET2_PROTOBUF_CONNECTION_HPP_
+#include "glog/logging.h"
 #include "base/base.hpp"
 #include "server/connection.hpp"
 struct ProtobufRequest {
@@ -25,8 +26,9 @@ class ProtobufRequestParser {
       InputIterator begin, InputIterator end) {
     while (begin != end) {
       tribool result = Consume(req, *begin++);
-      if (result || !result)
+      if (result || !result) {
         return make_tuple(result, begin);
+      }
     }
     tribool result = indeterminate;
     return make_tuple(result, begin);
@@ -62,6 +64,8 @@ class ProtobufReply {
 class ProtobufRequestHandler : private noncopyable {
  public:
   void HandleRequest(const ProtobufRequest &request, ProtobufReply *reply) {
+    StringPiece s(request.body_store.content(), request.body_store.capacity());
+    VLOG(2) << "Handle request: " << s;
   }
 };
 

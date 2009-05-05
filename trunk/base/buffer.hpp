@@ -50,7 +50,6 @@ class Buffer {
   int capacity() const {
     return capacity_;
   }
-
  private:
   scoped_array<T> t_;
   int size_, capacity_;

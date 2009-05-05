@@ -5,12 +5,15 @@
 #include <pthread.h>
 #include <signal.h>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <boost/thread.hpp>
 DEFINE_string(address, "localhost","The address");
 DEFINE_string(port, "8888","The port");
 DEFINE_int32(num_threads, 1,"The thread size");
 
 int main(int argc, char* argv[]) {
+  google::ParseCommandLineFlags(&argc, &argv, true);
+  google::InitGoogleLogging(argv[0]);
   // Block all signals for background thread.
   sigset_t new_mask;
   sigfillset(&new_mask);

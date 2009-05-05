@@ -1,3 +1,4 @@
+#include "glog/logging.h"
 #include "server/server.hpp"
 #include <boost/bind.hpp>
 
@@ -24,6 +25,7 @@ Server::Server(const string& address,
 }
 
 void Server::Run() {
+  VLOG(2) << "Server running";
   io_service_pool_.Run();
 }
 
@@ -33,6 +35,7 @@ void Server::Stop() {
 
 void Server::HandleAccept(const boost::system::error_code& e) {
   if (!e) {
+    VLOG(2) << "Handle accept";
     new_connection_->Start();
     new_connection_.reset(new_connection_->Clone());
     new_connection_->set_io_service(

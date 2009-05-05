@@ -1,6 +1,7 @@
 #ifndef NET2_CONNECTION_HPP_
 #define NET2_CONNECTION_HPP_
 #include "base/base.hpp"
+#include "glog/logging.h"
 #include "server/io_service_pool.hpp"
 class Connection : public enable_shared_from_this<Connection> {
  public:
@@ -73,6 +74,7 @@ template <typename Request, typename RequestHandler,
           typename RequestParser, typename Reply>
 void ConnectionImpl<
   Request, RequestHandler, RequestParser, Reply>::Start() {
+  VLOG(2) << "Connection start";
   socket_->async_read_some(asio::buffer(buffer_),
       bind(&Connection::HandleRead, shared_from_this(),
         asio::placeholders::error,
@@ -85,6 +87,8 @@ void ConnectionImpl<
   Request, RequestHandler, RequestParser, Reply>::HandleRead(
       const boost::system::error_code& e,
       size_t bytes_transferred) {
+  VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
+          << bytes_transferred;
   if (!e) {
     tribool result;
     tie(result, tuples::ignore) =

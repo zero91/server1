@@ -37,7 +37,12 @@ tribool ProtobufRequestParser::Consume(
         return true;
       } else {
         req->body_store.push_back(input);
-        return boost::indeterminate;
+        if (req->body_store.full()) {
+          state_ = End;
+          return true;
+        } else {
+          return boost::indeterminate;
+        }
       }
     default:
       return false;
