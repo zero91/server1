@@ -1,4 +1,4 @@
-#include "server.hpp"
+#include "server/server.hpp"
 #include <boost/bind.hpp>
 
 Server::Server(const string& address,

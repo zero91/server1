@@ -1,0 +1,2 @@
+StaticLibrary('base',
+  ['base.hpp', 'buffer.hpp'])

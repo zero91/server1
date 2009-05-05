@@ -1,4 +1,4 @@
-#include "protobuf_connection.hpp"
+#include "server/protobuf_connection.hpp"
 ProtobufRequestParser::ProtobufRequestParser()
   : state_(Start) {
 }

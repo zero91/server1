@@ -1,7 +1,7 @@
 #ifndef NET2_PROTOBUF_CONNECTION_HPP_
 #define NET2_PROTOBUF_CONNECTION_HPP_
-#include "base.hpp"
-#include "connection.hpp"
+#include "base/base.hpp"
+#include "server/connection.hpp"
 struct ProtobufRequest {
   string length_store;
   int length;

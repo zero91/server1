@@ -1,0 +1,30 @@
+third_party_path = '/home/txl/xserver/third_party'
+cpp_path = [
+  '#',
+  third_party_path + '/boost/include/boost-1_39',
+  third_party_path + '/gflags/include',
+  third_party_path + '/pcre/include',
+]
+
+lib_path = [
+  third_party_path + '/boost/lib',
+  third_party_path + '/gflags/lib',
+  third_party_path + '/pcre/lib',
+  '#build/base',
+  '#build/server',
+]
+
+env = DefaultEnvironment()
+env.Append(CPPPATH=cpp_path)
+env.Append(LIBPATH=lib_path)
+
+def Test(name):
+  Program(name + "_test.cc", LIBS=['base', 'gtest', 'gtest_main'])
+
+import __builtin__
+__builtin__.Test = Test
+
+subdir=['base', 'server']
+for x in subdir:
+  target_dir='build/%s' % x
+  SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)

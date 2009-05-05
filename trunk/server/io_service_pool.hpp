@@ -1,6 +1,6 @@
 #ifndef NET2_IO_SERVICE_POOL_HPP_
 #define NET2_IO_SERVICE_POOL_HPP_
-#include "base.hpp"
+#include "base/base.hpp"
 typedef shared_ptr<asio::io_service> IOServicePtr;
 /// A pool of io_service objects.
 class IOServicePool : private noncopyable {

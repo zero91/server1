@@ -1,7 +1,7 @@
 #ifndef NET2_CONNECTION_HPP_
 #define NET2_CONNECTION_HPP_
-#include "base.hpp"
-#include "io_service_pool.hpp"
+#include "base/base.hpp"
+#include "server/io_service_pool.hpp"
 class Connection : public enable_shared_from_this<Connection> {
  public:
   void set_io_service(IOServicePtr io_service) {

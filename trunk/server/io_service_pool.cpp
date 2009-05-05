@@ -1,4 +1,4 @@
-#include "io_service_pool.hpp"
+#include "server/io_service_pool.hpp"
 #include <boost/thread.hpp>
 #include <boost/bind.hpp>
 IOServicePool::IOServicePool(size_t pool_size)

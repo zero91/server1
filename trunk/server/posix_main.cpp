@@ -1,7 +1,7 @@
+#include "server/server.hpp"
+#include "server/protobuf_connection.hpp"
 #include <iostream>
 #include <string>
-#include "server.hpp"
-#include "protobuf_connection.hpp"
 #include <pthread.h>
 #include <signal.h>
 #include <gflags/gflags.h>

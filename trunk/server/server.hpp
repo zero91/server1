@@ -6,8 +6,8 @@
 #include <vector>
 #include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
-#include "connection.hpp"
-#include "io_service_pool.hpp"
+#include "server/connection.hpp"
+#include "server/io_service_pool.hpp"
 // The top-level class of the Server.
 class Server
   : private noncopyable {

@@ -1,0 +1,18 @@
+StaticLibrary('server',
+  ['connection.hpp',
+   'io_service_pool.cpp',
+   'io_service_pool.hpp',
+   'protobuf_connection.cpp',
+   'protobuf_connection.hpp',
+   'server.cpp',
+   'server.hpp'])
+
+Program('posix_main.cpp',
+  LIBS = [
+          'server',
+          'gflags',
+	  'pcre',
+	  'pcrecpp',
+	  'pthread',
+	  'boost_system-gcc40-mt',
+	  'boost_thread-gcc40-mt'])
