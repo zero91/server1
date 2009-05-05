@@ -1,17 +1,20 @@
-StaticLibrary('server',
-  ['connection.hpp',
+StaticLibrary(
+  target = 'server',
+  source = ['connection.hpp',
    'io_service_pool.cpp',
    'io_service_pool.hpp',
    'protobuf_connection.cpp',
    'protobuf_connection.hpp',
    'server.cpp',
-   'server.hpp'])
+   'server.hpp'],
+   )
 
 Program(
-  target = 'httpd',
+  target = 'server0',
   source = ['posix_main.cpp'],
   LIBS = [
           'server',
+	  'glog',
           'gflags',
 	  'pcre',
 	  'pcrecpp',

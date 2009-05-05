@@ -4,12 +4,14 @@ cpp_path = [
   third_party_path + '/boost/include/boost-1_39',
   third_party_path + '/gflags/include',
   third_party_path + '/pcre/include',
+  third_party_path + '/glog/include',
 ]
 
 lib_path = [
   third_party_path + '/boost/lib',
   third_party_path + '/gflags/lib',
   third_party_path + '/pcre/lib',
+  third_party_path + '/glog/lib',
   '#build/base',
   '#build/server',
 ]
@@ -26,7 +28,7 @@ def Test(name):
 import __builtin__
 __builtin__.Test = Test
 
-subdir=['base', 'server']
+subdir=['base', 'server', 'linux_client']
 for x in subdir:
   target_dir='build/%s' % x
   SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)
