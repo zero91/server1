@@ -1,4 +1,4 @@
-third_party_path = '/home/txl/xserver/third_party'
+third_party_path = '#/../third_party'
 cpp_path = [
   '#',
   third_party_path + '/boost/include/boost-1_39',
@@ -16,9 +16,18 @@ lib_path = [
   '#build/server',
 ]
 
+libs = [  'glog',
+          'gflags',
+	  'pcre',
+	  'pcrecpp',
+	  'pthread',
+	  'boost_system-gcc42-mt',
+	  'boost_thread-gcc42-mt']
+
 env = DefaultEnvironment()
 env.Append(CPPFLAGS='-g -static')
 env.Append(LINKFLAGS='-g -static')
+env.Append(LIBS=libs)
 env.Append(CPPPATH=cpp_path)
 env.Append(LIBPATH=lib_path)
 

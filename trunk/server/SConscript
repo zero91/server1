@@ -12,12 +12,4 @@ StaticLibrary(
 Program(
   target = 'server0',
   source = ['posix_main.cpp'],
-  LIBS = [
-          'server',
-	  'glog',
-          'gflags',
-	  'pcre',
-	  'pcrecpp',
-	  'pthread',
-	  'boost_system-gcc40-mt',
-	  'boost_thread-gcc40-mt'])
+  )
