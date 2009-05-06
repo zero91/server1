@@ -4,8 +4,9 @@
 #include <ostream>
 #include <string>
 #include <boost/asio.hpp>
-#include "gflags/gflags.h"
-#include "glog/logging.h"
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+#include "proto/hello.pb.h"
 DEFINE_string(server, "localhost", "The server address");
 DEFINE_string(port, "8888", "The server port");
 
@@ -40,7 +41,10 @@ int main(int argc, char* argv[]) {
   std::ostream request_stream(&request);
   string text;
   int n;
-  text = "123456789xxxxxx";
+  Hello::LexiconCast a;
+  a.set_v1("123456789");
+  a.set_v2(10000);
+  a.AppendToString(&text);
   string header(lexical_cast<string>(text.length()) + ":");
   n = boost::asio::write(
       socket,

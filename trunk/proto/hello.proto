@@ -1,0 +1,5 @@
+package Hello;
+message LexiconCast {
+  required string v1 = 1;
+  optional int32 v2 = 2;
+};

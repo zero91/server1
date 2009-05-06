@@ -1,43 +1,96 @@
-third_party_path = '#/../third_party'
+env = DefaultEnvironment()
+env['third_party'] = env.Dir('../third_party').abspath
+env['objroot'] = env.Dir('build').abspath
+env['srcroot'] = env.Dir('.').abspath
+
+def ProtocolBufferEmitter(target, source, env):
+  output = str(source[0])
+  output = output.replace(env.Dir('$srcroot').abspath,
+                          env.Dir('$objroot').abspath)
+  output = output[0:output.rfind('.proto')]
+  target = [
+    output + '.pb.cc',
+    output + '.pb.h',
+  ]
+  return target, source
+
+def LinuxProtocolBufferGenerator(source, target, env, for_signature):
+  commands = [
+    'mkdir -p $objroot/proto',
+    '$third_party/protobuf/bin/protoc'
+    ' --proto_path $srcroot'
+    ' --cpp_out $objroot ${SOURCES.abspath}']
+  return commands
+
+linux_proto_builder = Builder(generator = LinuxProtocolBufferGenerator,
+                        emitter = ProtocolBufferEmitter,
+                        single_source = 1,
+                        suffix = '.pb.cc')
+env['BUILDERS']['ProtocolBuffer'] = linux_proto_builder
+
 cpp_path = [
-  '#',
-  third_party_path + '/boost/include/boost-1_39',
-  third_party_path + '/gflags/include',
-  third_party_path + '/pcre/include',
-  third_party_path + '/glog/include',
+  '$objroot',
+  '$srcroot',
+  '$third_party/boost/include/boost-1_39',
+  '$third_party/gflags/include',
+  '$third_party/pcre/include',
+  '$third_party/glog/include',
+  '$third_party/protobuf/include',
 ]
 
 lib_path = [
-  third_party_path + '/boost/lib',
-  third_party_path + '/gflags/lib',
-  third_party_path + '/pcre/lib',
-  third_party_path + '/glog/lib',
-  '#build/base',
-  '#build/server',
+  '$third_party/boost/lib',
+  '$third_party/gflags/lib',
+  '$third_party/pcre/lib',
+  '$third_party/glog/lib',
+  '$third_party/protobuf/lib',
+  '$objroot/base',
+  '$objroot/server',
+  '$objroot/proto',
 ]
 
-libs = [  'glog',
-          'gflags',
-	  'pcre',
-	  'pcrecpp',
-	  'pthread',
-	  'boost_system-gcc42-mt',
-	  'boost_thread-gcc42-mt']
+import os
+import glob
+import re
+p = re.compile('.*/lib(boost.*mt).a')
+boost_files = glob.glob(env['third_party'] + '/boost/lib/libboost*mt.a')
+boost_libs = map(lambda x: p.match(x).group(1), boost_files)
+other_libs = [
+'glog',
+'gflags',
+'pcre',
+'pcrecpp',
+'pthread',
+'protobuf']
+
+libs = other_libs + list(set(boost_libs))
 
 env = DefaultEnvironment()
 env.Append(CPPFLAGS='-g -static')
 env.Append(LINKFLAGS='-g -static')
-env.Append(LIBS=libs)
 env.Append(CPPPATH=cpp_path)
 env.Append(LIBPATH=lib_path)
+env.Append(LIBS=libs)
+
+Export('env')
+
+def ProtoLib(env, name) :
+  proto_info = env.ProtocolBuffer(name + '.proto')
+  StaticLibrary(
+   target = name +'_pb',
+   source = [
+    proto_info[0].abspath,
+    proto_info[1].abspath]
+  )
 
 def Test(name):
   Program(name + "_test.cc", LIBS=['base', 'gtest', 'gtest_main'])
 
 import __builtin__
 __builtin__.Test = Test
+__builtin__.ProtoLib = ProtoLib
 
-subdir=['base', 'server', 'linux_client']
+subdir=['base', 'server', 'linux_client', 'proto']
 for x in subdir:
-  target_dir='build/%s' % x
+  target_dir='%s/%s' % (env['objroot'], x)
   SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)

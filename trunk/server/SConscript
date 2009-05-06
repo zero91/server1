@@ -1,4 +1,9 @@
-StaticLibrary(
+Import('env')
+server_env  = env
+server_env.Append(LIBPATH=['$objroot/server'])
+server_env.Append(LIBS=['server'])
+
+server_env.StaticLibrary(
   target = 'server',
   source = ['connection.hpp',
    'io_service_pool.cpp',
@@ -9,7 +14,6 @@ StaticLibrary(
    'server.hpp'],
    )
 
-Program(
+server_env.Program(
   target = 'server0',
-  source = ['posix_main.cpp'],
-  )
+  source = ['posix_main.cpp'])

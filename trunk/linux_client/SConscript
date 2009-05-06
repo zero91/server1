@@ -1,4 +1,7 @@
-Program(
+Import('env')
+client_env = env
+client_env.Append(LIBPATH=['$objroot/proto'])
+client_env.Append(LIBS=['hello_pb'])
+client_env.Program(
   target = 'client',
-  source = ['sync_client.cpp'],
-  )
+  source = ['sync_client.cpp'])
