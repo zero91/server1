@@ -37,6 +37,8 @@ boost::tribool ProtobufRequestParser::Consume(
       }
       req->name_store.push_back(input);
       if (req->name_store.full()) {
+        req->name.assign(req->name_store.content(),
+                         req->name_store.capacity());
         state_ = BodyLength;
       }
       return boost::indeterminate;
@@ -58,6 +60,8 @@ boost::tribool ProtobufRequestParser::Consume(
       }
       req->body_store.push_back(input);
       if (req->body_store.full()) {
+        req->body.assign(req->body_store.content(),
+                         req->body_store.capacity());
         state_ = End;
         return true;
       }
@@ -66,3 +70,67 @@ boost::tribool ProtobufRequestParser::Consume(
       return false;
   }
 }
+bool ProtobufRequestHandler::HandleService(
+    google::protobuf::Service *service,
+    const google::protobuf::MethodDescriptor *method,
+    const google::protobuf::Message *request_prototype,
+    const google::protobuf::Message *response_prototype,
+    const ProtobufRequest &protobuf_request,
+    ProtobufReply *reply) {
+  google::protobuf::Message *request = request_prototype->New();
+  if (!request->ParseFromArray(
+      protobuf_request.body.c_str(),
+      protobuf_request.body.size())) {
+    LOG(WARNING) << protobuf_request.name << " invalid format";
+    return false;
+  }
+  google::protobuf::Message *response = response_prototype->New();
+  reply->set_request_message(request);
+  reply->set_response_message(response);
+  google::protobuf::Closure *done = google::protobuf::NewCallback(
+      this,
+      &ProtobufRequestHandler::CallServiceMethodDone,
+      reply);
+  service->CallMethod(method, NULL, request, response, done);
+  return true;
+}
+
+void ProtobufRequestHandler::CallServiceMethodDone(ProtobufReply *reply) {
+  if (!reply->Encode()) {
+    reply->set_reply_status(ProtobufReply::SUCCEED_WITHOUT_CONTENT);
+  } else {
+    reply->set_reply_status(ProtobufReply::SUCCEED_WITH_CONTENT);
+  }
+  // Service is short connection.
+  reply->set_status(ProtobufReply::TERMINATED);
+}
+
+void ProtobufRequestHandler::RegisterService(
+    google::protobuf::Service *service) {
+  const google::protobuf::ServiceDescriptor *service_descriptor =
+    service->GetDescriptor();
+  for (int i = 0; i < service_descriptor->method_count(); ++i) {
+    const google::protobuf::MethodDescriptor *method = service_descriptor->method(i);
+    const google::protobuf::Message *request = &service->GetRequestPrototype(method);
+    const google::protobuf::Message *response = &service->GetResponsePrototype(method);
+    RequestHandler handler = boost::bind(
+        &ProtobufRequestHandler::HandleService, this,
+        service,
+        method,
+        request, response, _1, _2);
+    handler_table_[method->full_name()] = handler;
+  }
+}
+
+void ProtobufRequestHandler::HandleRequest(
+    const ProtobufRequest &request, ProtobufReply *reply) {
+  VLOG(2) << "Handle request: " << request.name;
+  RequestHandlerTable::const_iterator it = handler_table_.find(
+      request.name);
+  if (it == handler_table_.end()) {
+    reply->set_reply_status(ProtobufReply::UNKNOWN_REQUEST);
+    return;
+  }
+  it->second(request, reply);
+}
+

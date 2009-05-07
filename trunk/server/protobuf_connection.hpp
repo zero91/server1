@@ -7,7 +7,6 @@
 #include <protobuf/message.h>
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
-#include <boost/functional/hash.hpp>
 // Encoder the Protobuf to line format.
 // The line format is:
 // name_length:name body_length:body
@@ -18,16 +17,22 @@ class ProtobufEncoder {
     body_.clear();
     buffers_.clear();
   }
-  void Encode(const google::protobuf::Message *msg) {
+  bool Encode(const google::protobuf::Message *msg) {
+    if (!msg->AppendToString(&body_)) {
+      return false;
+    }
+    if (body_.empty()) {
+      return false;
+    }
     const string &msg_name = msg->GetDescriptor()->full_name();
     header_.append(boost::lexical_cast<string>(msg_name.size()));
     header_.append(":");
     header_.append(msg_name);
-    msg->AppendToString(&body_);
     header_.append(boost::lexical_cast<string>(body_.size()));
     header_.append(":");
     buffers_.push_back(boost::asio::const_buffer(header_.c_str(), header_.size()));
     buffers_.push_back(boost::asio::const_buffer(body_.c_str(), body_.size()));
+    return true;
   }
   const vector<boost::asio::const_buffer> &ToBuffers() const {
     return buffers_;
@@ -41,9 +46,11 @@ struct ProtobufRequest {
   string name_length_store;
   int name_length;
   Buffer<char> name_store;
+  string name;
   string body_length_store;
   int body_length;
   Buffer<char> body_store;
+  string body;
 };
 
 class ProtobufRequestParser {
@@ -87,96 +94,90 @@ private:
 
 class ProtobufReply {
  public:
-  ProtobufReply() : status_(IDLE) {
-  }
-  vector<boost::asio::const_buffer> ToBuffers() {
-    vector<boost::asio::const_buffer> ret;
-    return ret;
-  }
   enum Status {
     IDLE,
     RUNNING,
     TERMINATED,
   };
   enum ReplyStatus {
+    SUCCEED_WITHOUT_CONTENT,
+    SUCCEED_WITH_CONTENT,
     BAD_REQUEST,
+    UNKNOWN_REQUEST,
   };
+  ProtobufReply() : status_(IDLE),
+                    reply_status_(SUCCEED_WITHOUT_CONTENT) {
+  }
+  vector<boost::asio::const_buffer> ToBuffers() {
+    return vector<boost::asio::const_buffer> ();
+  }
+
+  ReplyStatus reply_status() const {
+    return reply_status_;
+  }
+
+  void set_reply_status(ReplyStatus reply_status) {
+    reply_status_ = reply_status;
+  }
+
+  void set_status(Status status) {
+    status_ = status;
+  }
 
   Status status() const {
     return status_;
+  }
+  bool Encode() {
+    encoder_.Init();
+    return encoder_.Encode(response_message_.get());
   }
 
   bool IsRunning() const {
     return status_ == RUNNING;
   }
 
-  static ProtobufReply StockReply(ReplyStatus status) {
-    return ProtobufReply();
+  void set_request_message(google::protobuf::Message *msg) {
+    request_message_.reset(msg);
+  }
+
+  void set_response_message(google::protobuf::Message *msg) {
+    response_message_.reset(msg);
   }
  private:
+  scoped_ptr<google::protobuf::Message> request_message_;
+  scoped_ptr<google::protobuf::Message> response_message_;
+  ProtobufEncoder encoder_;
   Status status_;
+  ReplyStatus reply_status_;
 };
 
 class ProtobufRequestHandler : private boost::noncopyable {
  public:
-  void HandleRequest(const ProtobufRequest &request, ProtobufReply *reply) {
-    StringPiece s(request.body_store.content(), request.body_store.capacity());
-    VLOG(2) << "Handle request: " << s;
-  }
+  typedef boost::function2<
+    void, const ProtobufRequest&, ProtobufReply*> RequestHandler;
+  bool HandleService(google::protobuf::Service *service,
+                     const google::protobuf::MethodDescriptor *method,
+                     const google::protobuf::Message *request_prototype,
+                     const google::protobuf::Message *response_prototype,
+                     const ProtobufRequest &protobuf_request,
+                     ProtobufReply *reply);
+  void HandleRequest(const ProtobufRequest &request, ProtobufReply *reply);
+  void RegisterService(google::protobuf::Service *service);
+ private:
+  void CallServiceMethodDone(ProtobufReply *reply);
+  typedef hash_map<string, RequestHandler> RequestHandlerTable;
+  RequestHandlerTable handler_table_;
 };
 
 class ProtobufConnection : public ConnectionImpl<
   ProtobufRequest, ProtobufRequestHandler, ProtobufRequestParser,
   ProtobufReply> {
  public:
-  typedef boost::function1<void, const google::protobuf::Message *> Listener;
-  typedef boost::function1<void, const ProtobufRequest*> RequestHandler;
-  bool HandleService(google::protobuf::Service *service,
-                      const google::protobuf::MethodDescriptor *method,
-                      const google::protobuf::Message *request_prototype,
-                      const google::protobuf::Message *response_prototype,
-                      const ProtobufRequest *protobuf_request) {
-    google::protobuf::Message *request = request_prototype->New();
-    if (!request->ParseFromArray(
-        protobuf_request->body_store.content(),
-        protobuf_request->body_store.capacity())) {
-      LOG(WARNING) << string(protobuf_request->name_store.data(),
-                             protobuf_request->name_store.size()) << " invalid format";
-      return false;
-    }
-    google::protobuf::Message *response = response_prototype->New();
-    google::protobuf::Closure *done = google::protobuf::NewCallback(
-        this,
-        &ProtobufConnection::CallMethodDone,
-        request, response);
-    service->CallMethod(method, NULL, request, response, done);
-    return true;
-  }
   void RegisterService(google::protobuf::Service *service) {
-    const google::protobuf::ServiceDescriptor *service_descriptor =
-      service->GetDescriptor();
-    for (int i = 0; i < service_descriptor->method_count(); ++i) {
-      const google::protobuf::MethodDescriptor *method = service_descriptor->method(i);
-      const google::protobuf::Message *request = &service->GetRequestPrototype(method);
-      const google::protobuf::Message *response = &service->GetResponsePrototype(method);
-      RequestHandler handler = boost::bind(
-          &ProtobufConnection::HandleService, this,
-          service,
-          method,
-          request, response, _1);
-      service_table_[method->full_name()] = handler;
-    }
+    request_handler_.RegisterService(service);
   }
   template <class CL, class MessageType>
   void RegisterListener(CL *ptr, void (CL::*member)(const MessageType *)) {
   }
- private:
-  void CallMethodDone(google::protobuf::Message *request,
-                      google::protobuf::Message *response) {
-    delete request;
-    delete response;
-  }
-  typedef hash_map<string, RequestHandler> RequestHandlerTable;
-  RequestHandlerTable service_table_;
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

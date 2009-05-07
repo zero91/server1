@@ -46,8 +46,6 @@ lib_path = [
   '$third_party/glog/lib',
   '$third_party/protobuf/lib',
   '$objroot/base',
-  '$objroot/server',
-  '$objroot/proto',
 ]
 
 import os

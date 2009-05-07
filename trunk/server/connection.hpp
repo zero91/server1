@@ -43,7 +43,7 @@ public:
     return new ConnectionImpl;
   }
 
-private:
+protected:
   static const int kBufferSize = 8192;
   /// Handle completion of a read operation.
   virtual void HandleRead(const boost::system::error_code& e,
@@ -102,7 +102,6 @@ void ConnectionImpl<
           boost::bind(&Connection::HandleWrite, shared_from_this(),
             boost::asio::placeholders::error));
     } else if (!result) {
-      reply_ = Reply::StockReply(Reply::BAD_REQUEST);
       boost::asio::async_write(*socket_.get(), reply_.ToBuffers(),
           boost::bind(&Connection::HandleWrite, shared_from_this(),
             boost::asio::placeholders::error));
