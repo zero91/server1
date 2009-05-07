@@ -5,10 +5,11 @@
 Server::Server(const string& address,
                const string& port,
                size_t io_service_pool_size,
-               const ConnectionPtr &connection)
+               ConnectionPtr connection)
   : io_service_pool_(io_service_pool_size),
     acceptor_(*io_service_pool_.get_io_service().get()),
-    new_connection_(connection->Clone()) {
+    connection_(connection) {
+  new_connection_.reset(connection_->Clone());
   new_connection_->set_io_service(
       io_service_pool_.get_io_service());
   // Open the acceptor with the option to reuse the address (i.e. SO_REUSEADDR).
@@ -37,7 +38,7 @@ void Server::HandleAccept(const boost::system::error_code& e) {
   if (!e) {
     VLOG(2) << "Handle accept";
     new_connection_->Start();
-    new_connection_.reset(new_connection_->Clone());
+    new_connection_.reset(connection_->Clone());
     new_connection_->set_io_service(
       io_service_pool_.get_io_service());
     acceptor_.async_accept(*new_connection_->socket(),

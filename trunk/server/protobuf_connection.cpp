@@ -1,14 +1,14 @@
 #include "server/protobuf_connection.hpp"
-ProtobufRequestParser::ProtobufRequestParser()
+ProtobufLineFormatParser::ProtobufLineFormatParser()
   : state_(Start) {
 }
 
-void ProtobufRequestParser::reset() {
+void ProtobufLineFormatParser::reset() {
   state_ = Start;
 }
 
-boost::tribool ProtobufRequestParser::Consume(
-    ProtobufRequest* req, char input) {
+boost::tribool ProtobufLineFormatParser::Consume(
+    ProtobufLineFormat* req, char input) {
   switch (state_) {
     case Start:
       {
@@ -16,6 +16,7 @@ boost::tribool ProtobufRequestParser::Consume(
           return false;
         }
         state_ = NameLength;
+        req->name_length_store.clear();
         req->name_length_store.push_back(input);
         return boost::indeterminate;
       }
@@ -39,6 +40,7 @@ boost::tribool ProtobufRequestParser::Consume(
       if (req->name_store.full()) {
         req->name.assign(req->name_store.content(),
                          req->name_store.capacity());
+        req->body_length_store.clear();
         state_ = BodyLength;
       }
       return boost::indeterminate;
@@ -75,7 +77,7 @@ bool ProtobufRequestHandler::HandleService(
     const google::protobuf::MethodDescriptor *method,
     const google::protobuf::Message *request_prototype,
     const google::protobuf::Message *response_prototype,
-    const ProtobufRequest &protobuf_request,
+    const ProtobufLineFormat &protobuf_request,
     ProtobufReply *reply) {
   google::protobuf::Message *request = request_prototype->New();
   if (!request->ParseFromArray(
@@ -118,19 +120,18 @@ void ProtobufRequestHandler::RegisterService(
         service,
         method,
         request, response, _1, _2);
-    handler_table_[method->full_name()] = handler;
+    handler_table_->insert(make_pair(method->full_name(), handler));
   }
 }
 
-void ProtobufRequestHandler::HandleRequest(
-    const ProtobufRequest &request, ProtobufReply *reply) {
+void ProtobufRequestHandler::HandleLineFormat(
+    const ProtobufLineFormat &request, ProtobufReply *reply) {
   VLOG(2) << "Handle request: " << request.name;
-  RequestHandlerTable::const_iterator it = handler_table_.find(
+  RequestHandlerTable::const_iterator it = handler_table_->find(
       request.name);
-  if (it == handler_table_.end()) {
+  if (it == handler_table_->end()) {
     reply->set_reply_status(ProtobufReply::UNKNOWN_REQUEST);
     return;
   }
   it->second(request, reply);
 }
-

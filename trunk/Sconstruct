@@ -37,6 +37,7 @@ cpp_path = [
   '$third_party/glog/include',
   '$third_party/protobuf/include/',
   '$third_party/protobuf/include/google',
+  '$third_party/gtest/include',
 ]
 
 lib_path = [
@@ -45,6 +46,8 @@ lib_path = [
   '$third_party/pcre/lib',
   '$third_party/glog/lib',
   '$third_party/protobuf/lib',
+  '$third_party/gtest/lib',
+  '$third_party/gpref/lib',
   '$objroot/base',
 ]
 
@@ -54,43 +57,54 @@ import re
 p = re.compile('.*/lib(boost.*mt).a')
 boost_files = glob.glob(env['third_party'] + '/boost/lib/libboost*mt.a')
 boost_libs = map(lambda x: p.match(x).group(1), boost_files)
+
 other_libs = [
 'base',
 'glog',
 'gflags',
 'pcre',
 'pcrecpp',
-'pthread',
-'protobuf']
+'protobuf',
+]
 
-libs = other_libs + list(set(boost_libs))
+static_libs = other_libs + list(set(boost_libs))
+
+dynamic_libs = ['pthread', 'tcmalloc']
+
+link_flags = '-g -Wl,-Bdynamic'
+for i in dynamic_libs:
+  link_flags += ' -l' + i
+link_flags += ' -Wl,-Bstatic'
 
 env = DefaultEnvironment()
+env['LINKCOM'] = "$LINK -o $TARGET $SOURCES $LINKFLAGS $_LIBDIRFLAGS $_LIBFLAGS -Wl,-Bdynamic"
 env.Append(CPPFLAGS='-g -static')
-env.Append(LINKFLAGS='-g -static')
+env.Append(LINKFLAGS=link_flags)
 env.Append(CPPPATH=cpp_path)
 env.Append(LIBPATH=lib_path)
-env.Append(LIBS=libs)
+env.Append(LIBS=static_libs)
 
 Export('env')
 
 def ProtoLib(env, name) :
   proto_info = env.ProtocolBuffer(name + '.proto')
-  StaticLibrary(
+  env.StaticLibrary(
    target = name +'_pb',
    source = [
     proto_info[0].abspath,
     proto_info[1].abspath]
   )
 
-def Test(name):
-  Program(name + "_test.cc", LIBS=['base', 'gtest', 'gtest_main'])
+def Test(env, name):
+  env.Append(LIBS = ['gtest'])
+  env.Program(name + "_test.cpp")
+
 
 import __builtin__
 __builtin__.Test = Test
 __builtin__.ProtoLib = ProtoLib
 
-subdir=['base', 'server', 'linux_client', 'proto']
+subdir=['base', 'server', 'linux_client', 'proto', 'client']
 for x in subdir:
   target_dir='%s/%s' % (env['objroot'], x)
   SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)

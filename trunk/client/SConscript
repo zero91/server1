@@ -1,0 +1,15 @@
+Import('env')
+client_env  = env
+client_env.Append(LIBPATH=['$objroot/client'])
+client_env.Prepend(LIBS=['client'])
+
+client_env.StaticLibrary(
+  target = 'client',
+  source = ['channel.hpp',
+   'channel.cpp',
+   'client_connection.hpp',
+   'protobuf_client_connection.hpp',
+   ],
+   )
+
+Test(env, 'client')

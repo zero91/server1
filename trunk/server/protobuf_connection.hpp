@@ -3,10 +3,12 @@
 #include "base/base.hpp"
 #include "server/connection.hpp"
 #include <boost/function.hpp>
+#include <boost/thread/mutex.hpp>
 #include <glog/logging.h>
 #include <protobuf/message.h>
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
+typedef vector<boost::asio::const_buffer> ConstBufferVector;
 // Encoder the Protobuf to line format.
 // The line format is:
 // name_length:name body_length:body
@@ -18,31 +20,35 @@ class ProtobufEncoder {
     buffers_.clear();
   }
   bool Encode(const google::protobuf::Message *msg) {
+    const string &msg_name = msg->GetDescriptor()->full_name();
+    return Encode(msg_name, msg);
+  }
+
+  bool Encode(const string &name, const google::protobuf::Message *msg) {
     if (!msg->AppendToString(&body_)) {
       return false;
     }
     if (body_.empty()) {
       return false;
     }
-    const string &msg_name = msg->GetDescriptor()->full_name();
-    header_.append(boost::lexical_cast<string>(msg_name.size()));
+    header_.append(boost::lexical_cast<string>(name.size()));
     header_.append(":");
-    header_.append(msg_name);
+    header_.append(name);
     header_.append(boost::lexical_cast<string>(body_.size()));
     header_.append(":");
     buffers_.push_back(boost::asio::const_buffer(header_.c_str(), header_.size()));
     buffers_.push_back(boost::asio::const_buffer(body_.c_str(), body_.size()));
     return true;
   }
-  const vector<boost::asio::const_buffer> &ToBuffers() const {
+  const ConstBufferVector &ToBuffers() const {
     return buffers_;
   }
  private:
   string header_, body_;
-  vector<boost::asio::const_buffer> buffers_;
+  ConstBufferVector buffers_;
 };
 
-struct ProtobufRequest {
+struct ProtobufLineFormat {
   string name_length_store;
   int name_length;
   Buffer<char> name_store;
@@ -53,10 +59,10 @@ struct ProtobufRequest {
   string body;
 };
 
-class ProtobufRequestParser {
+class ProtobufLineFormatParser {
  public:
   /// Construct ready to parse the request method.
-  ProtobufRequestParser();
+  ProtobufLineFormatParser();
 
   /// Reset to initial parser state.
   void reset();
@@ -66,7 +72,7 @@ class ProtobufRequestParser {
   /// data is required. The InputIterator return value indicates how much of the
   /// input has been consumed.
   template <typename InputIterator>
-  boost::tuple<boost::tribool, InputIterator> Parse(ProtobufRequest *req,
+  boost::tuple<boost::tribool, InputIterator> Parse(ProtobufLineFormat *req,
       InputIterator begin, InputIterator end) {
     while (begin != end) {
       boost::tribool result = Consume(req, *begin++);
@@ -79,7 +85,7 @@ class ProtobufRequestParser {
   }
 private:
   /// Handle the next character of input.
-  boost::tribool Consume(ProtobufRequest *req, char input);
+  boost::tribool Consume(ProtobufLineFormat *req, char input);
 
   /// The current state of the parser.
   enum State {
@@ -151,33 +157,49 @@ class ProtobufReply {
   ReplyStatus reply_status_;
 };
 
-class ProtobufRequestHandler : private boost::noncopyable {
- public:
+class ProtobufRequestHandler {
+ private:
   typedef boost::function2<
-    void, const ProtobufRequest&, ProtobufReply*> RequestHandler;
+    void, const ProtobufLineFormat&, ProtobufReply*> RequestHandler;
+  typedef hash_map<string, RequestHandler> RequestHandlerTable;
+ public:
+  ProtobufRequestHandler() : handler_table_(new RequestHandlerTable) {
+  }
   bool HandleService(google::protobuf::Service *service,
                      const google::protobuf::MethodDescriptor *method,
                      const google::protobuf::Message *request_prototype,
                      const google::protobuf::Message *response_prototype,
-                     const ProtobufRequest &protobuf_request,
+                     const ProtobufLineFormat &protobuf_request,
                      ProtobufReply *reply);
-  void HandleRequest(const ProtobufRequest &request, ProtobufReply *reply);
+  void HandleLineFormat(const ProtobufLineFormat &request, ProtobufReply *reply);
   void RegisterService(google::protobuf::Service *service);
  private:
   void CallServiceMethodDone(ProtobufReply *reply);
-  typedef hash_map<string, RequestHandler> RequestHandlerTable;
-  RequestHandlerTable handler_table_;
+  shared_ptr<RequestHandlerTable> handler_table_;
 };
 
 class ProtobufConnection : public ConnectionImpl<
-  ProtobufRequest, ProtobufRequestHandler, ProtobufRequestParser,
+  ProtobufLineFormat, ProtobufRequestHandler, ProtobufLineFormatParser,
   ProtobufReply> {
  public:
+  Connection *Clone() {
+    boost::mutex::scoped_lock locker(mutex_);
+    return ConnectionImpl<ProtobufLineFormat,
+           ProtobufRequestHandler,
+           ProtobufLineFormatParser,
+           ProtobufReply>::Clone();
+  }
   void RegisterService(google::protobuf::Service *service) {
-    request_handler_.RegisterService(service);
+    boost::mutex::scoped_lock locker(mutex_);
+    lineformat_handler_.RegisterService(service);
   }
   template <class CL, class MessageType>
   void RegisterListener(CL *ptr, void (CL::*member)(const MessageType *)) {
+    boost::mutex::scoped_lock locker(mutex_);
   }
+
+ private:
+  boost::mutex mutex_;
+
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

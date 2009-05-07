@@ -18,7 +18,7 @@ public:
       const string& address,
       const string& port,
       size_t io_service_pool_size,
-      const ConnectionPtr &connection);
+      ConnectionPtr connection);
 
   /// Run the Server's io_service loop.
   void Run();
@@ -38,5 +38,7 @@ private:
 
   /// The next connection to be accepted.
   ConnectionPtr new_connection_;
+  // The original connection with the handler table.
+  ConnectionPtr connection_;
 };
 #endif // NET2_SERVER_HPP

@@ -9,12 +9,13 @@ class Connection : public boost::enable_shared_from_this<Connection> {
     io_service_ = io_service;
     socket_.reset(new boost::asio::ip::tcp::socket(*io_service_.get()));
   }
+  virtual ~Connection() {}
 
   virtual void Start() = 0;
   boost::asio::ip::tcp::socket *socket() {
     return socket_.get();
   }
-  virtual Connection *Clone() const = 0;
+  virtual Connection *Clone() = 0;
  private:
   IOServicePtr io_service_;
  protected:
@@ -30,17 +31,20 @@ class Connection : public boost::enable_shared_from_this<Connection> {
 typedef shared_ptr<Connection> ConnectionPtr;
 
 /// Represents a single Connection from a client.
-template <typename Request,
-          typename RequestHandler,
-          typename RequestParser,
+template <typename LineFormat,
+          typename LineFormatHandler,
+          typename LineFormatParser,
           typename Reply>
 class ConnectionImpl : public Connection {
 public:
   // Start the first asynchronous operation for the Connection.
   void Start();
 
-  Connection* Clone() const {
-    return new ConnectionImpl;
+  Connection* Clone() {
+    ConnectionImpl *connect = new ConnectionImpl;
+    // To get the handler table.
+    connect->lineformat_handler_ = lineformat_handler_;
+    return connect;
   }
 
 protected:
@@ -53,16 +57,16 @@ protected:
   virtual void HandleWrite(const boost::system::error_code& e);
 
   /// The handler used to process the incoming request.
-  RequestHandler request_handler_;
+  LineFormatHandler lineformat_handler_;
 
   /// Buffer for incoming data.
   boost::array<char, kBufferSize> buffer_;
 
   /// The incoming request.
-  Request request_;
+  LineFormat lineformat_;
 
   /// The parser for the incoming request.
-  RequestParser request_parser_;
+  LineFormatParser lineformat_parser_;
 
   /// The reply to be sent back to the client.
   Reply reply_;
@@ -70,10 +74,10 @@ protected:
   IOServicePtr io_service_;
 };
 
-template <typename Request, typename RequestHandler,
-          typename RequestParser, typename Reply>
+template <typename LineFormat, typename LineFormatHandler,
+          typename LineFormatParser, typename Reply>
 void ConnectionImpl<
-  Request, RequestHandler, RequestParser, Reply>::Start() {
+  LineFormat, LineFormatHandler, LineFormatParser, Reply>::Start() {
   VLOG(2) << "Connection start";
   socket_->async_read_some(boost::asio::buffer(buffer_),
       boost::bind(&Connection::HandleRead, shared_from_this(),
@@ -81,10 +85,10 @@ void ConnectionImpl<
         boost::asio::placeholders::bytes_transferred));
 }
 
-template <typename Request, typename RequestHandler,
-          typename RequestParser, typename Reply>
+template <typename LineFormat, typename LineFormatHandler,
+          typename LineFormatParser, typename Reply>
 void ConnectionImpl<
-  Request, RequestHandler, RequestParser, Reply>::HandleRead(
+  LineFormat, LineFormatHandler, LineFormatParser, Reply>::HandleRead(
       const boost::system::error_code& e,
       size_t bytes_transferred) {
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
@@ -92,12 +96,12 @@ void ConnectionImpl<
   if (!e) {
     boost::tribool result;
     boost::tie(result, boost::tuples::ignore) =
-      request_parser_.Parse(
-        &request_, buffer_.data(),
+      lineformat_parser_.Parse(
+        &lineformat_, buffer_.data(),
         buffer_.data() + bytes_transferred);
 
     if (result) {
-      request_handler_.HandleRequest(request_, &reply_);
+      lineformat_handler_.HandleLineFormat(lineformat_, &reply_);
       boost::asio::async_write(*socket_.get(), reply_.ToBuffers(),
           boost::bind(&Connection::HandleWrite, shared_from_this(),
             boost::asio::placeholders::error));
@@ -119,10 +123,10 @@ void ConnectionImpl<
   // handler returns. The ConnectionImpl class's destructor closes the socket.
 }
 
-template <typename Request, typename RequestHandler,
-          typename RequestParser, typename Reply>
+template <typename LineFormat, typename LineFormatHandler,
+          typename LineFormatParser, typename Reply>
 void ConnectionImpl<
-  Request, RequestHandler, RequestParser, Reply>::HandleWrite(
+  LineFormat, LineFormatHandler, LineFormatParser, Reply>::HandleWrite(
       const boost::system::error_code& e) {
   if (!e) {
     if (!reply_.IsRunning()) {

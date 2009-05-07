@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
   pthread_sigmask(SIG_BLOCK, &new_mask, &old_mask);
 
   // Run server in background thread.
-  ConnectionPtr protobuf_connection(new ProtobufConnection);
+  shared_ptr<ProtobufConnection> protobuf_connection(new ProtobufConnection);
   Server s(FLAGS_address,
            FLAGS_port,
            FLAGS_num_threads,

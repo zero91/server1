@@ -3,3 +3,16 @@ message LexiconCast {
   required string v1 = 1;
   optional int32 v2 = 2;
 };
+
+message EchoRequest {
+  required string question = 1;
+}
+
+message EchoResponse {
+  optional bool echoed = 1;
+  optional string text = 2;
+}
+
+service EchoService {
+  rpc Echo(EchoRequest) returns (EchoResponse);
+}
