@@ -13,8 +13,6 @@ DEFINE_string(port, "8888", "The server port");
 DECLARE_bool(logtostderr);
 DECLARE_int32(stderrthreshold);
 
-using boost::asio::ip::tcp;
-
 int main(int argc, char* argv[]) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
@@ -23,10 +21,10 @@ int main(int argc, char* argv[]) {
       FLAGS_server, FLAGS_port);
   boost::asio::ip::tcp::resolver resolver(io_service);
   boost::asio::ip::tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
-  tcp::resolver::iterator end;
+  boost::asio::ip::tcp::resolver::iterator end;
 
   // Try each endpoint until we successfully establish a connection.
-  tcp::socket socket(io_service);
+  boost::asio::ip::tcp::socket socket(io_service);
   boost::system::error_code error = boost::asio::error::host_not_found;
   while (error && endpoint_iterator != end) {
     socket.close();
@@ -45,17 +43,17 @@ int main(int argc, char* argv[]) {
   a.set_v1("123456789");
   a.set_v2(10000);
   a.AppendToString(&text);
-  string header(lexical_cast<string>(text.length()) + ":");
+  string header(boost::lexical_cast<string>(text.length()) + ":");
   n = boost::asio::write(
       socket,
-      asio::const_buffers_1(header.c_str(), header.size()),
-      asio::transfer_all(), error);
+      boost::asio::const_buffers_1(header.c_str(), header.size()),
+      boost::asio::transfer_all(), error);
   CHECK(!error) << "write error: " << error.message();
   LOG(INFO) << "n is: " << n;
   n = boost::asio::write(
       socket,
-      asio::const_buffers_1(text.c_str(), text.size()),
-      asio::transfer_all(), error);
+      boost::asio::const_buffers_1(text.c_str(), text.size()),
+      boost::asio::transfer_all(), error);
   LOG(INFO) << "n is: " << n;
   CHECK(!error) << "write error: " << error.message();
 

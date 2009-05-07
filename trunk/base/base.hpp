@@ -1,8 +1,10 @@
 #ifndef BASE_H_
 #define BASE_H_
+#include "protobuf/message.h"
+
 #include "pcre.h"
 #include "pcre_stringpiece.h"
-using namespace pcrecpp;
+typedef pcrecpp::StringPiece StringPiece;
 
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
@@ -15,7 +17,9 @@ using namespace pcrecpp;
 #include <boost/logic/tribool.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/tuple/tuple.hpp>
-using namespace boost;
+using boost::scoped_ptr;
+using boost::scoped_array;
+using boost::shared_ptr;
 
 #include <string>
 #include <vector>
@@ -38,4 +42,5 @@ using namespace __gnu_cxx;
 #include <assert.h>
 
 #include "buffer.hpp"
+#include "hash.hpp"
 #endif // BASE_H_

@@ -35,7 +35,8 @@ cpp_path = [
   '$third_party/gflags/include',
   '$third_party/pcre/include',
   '$third_party/glog/include',
-  '$third_party/protobuf/include',
+  '$third_party/protobuf/include/',
+  '$third_party/protobuf/include/google',
 ]
 
 lib_path = [
@@ -56,6 +57,7 @@ p = re.compile('.*/lib(boost.*mt).a')
 boost_files = glob.glob(env['third_party'] + '/boost/lib/libboost*mt.a')
 boost_libs = map(lambda x: p.match(x).group(1), boost_files)
 other_libs = [
+'base',
 'glog',
 'gflags',
 'pcre',

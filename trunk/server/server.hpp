@@ -10,7 +10,7 @@
 #include "server/io_service_pool.hpp"
 // The top-level class of the Server.
 class Server
-  : private noncopyable {
+  : private boost::noncopyable {
 public:
   /// Construct the Server to listen on the specified TCP address and port, and
   /// serve up files from the given directory.
@@ -34,7 +34,7 @@ private:
   IOServicePool io_service_pool_;
 
   /// Acceptor used to listen for incoming connections.
-  asio::ip::tcp::acceptor acceptor_;
+  boost::asio::ip::tcp::acceptor acceptor_;
 
   /// The next connection to be accepted.
   ConnectionPtr new_connection_;

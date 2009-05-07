@@ -9,8 +9,8 @@ IOServicePool::IOServicePool(size_t pool_size)
   // Give all the io_services work to do so that their run() functions will not
   // exit until they are explicitly stopped.
   for (size_t i = 0; i < pool_size; ++i) {
-    IOServicePtr io_service(new asio::io_service);
-    work_ptr work(new asio::io_service::work(*io_service));
+    IOServicePtr io_service(new boost::asio::io_service);
+    work_ptr work(new boost::asio::io_service::work(*io_service));
     io_services_.push_back(io_service);
     work_.push_back(work);
   }
@@ -18,10 +18,10 @@ IOServicePool::IOServicePool(size_t pool_size)
 
 void IOServicePool::Run() {
   // Create a pool of threads to run all of the io_services.
-  vector<shared_ptr<thread> > threads;
+  vector<shared_ptr<boost::thread> > threads;
   for (size_t i = 0; i < io_services_.size(); ++i) {
-    shared_ptr<thread> t(new thread(
-        bind(&asio::io_service::run, io_services_[i])));
+    shared_ptr<boost::thread> t(new boost::thread(
+        bind(&boost::asio::io_service::run, io_services_[i])));
     threads.push_back(t);
   }
 

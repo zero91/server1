@@ -1,9 +1,9 @@
 #ifndef NET2_IO_SERVICE_POOL_HPP_
 #define NET2_IO_SERVICE_POOL_HPP_
 #include "base/base.hpp"
-typedef shared_ptr<asio::io_service> IOServicePtr;
+typedef shared_ptr<boost::asio::io_service> IOServicePtr;
 /// A pool of io_service objects.
-class IOServicePool : private noncopyable {
+class IOServicePool : private boost::noncopyable {
 public:
   /// Construct the io_service pool.
   explicit IOServicePool(size_t pool_size);
@@ -18,7 +18,7 @@ public:
   IOServicePtr get_io_service();
 
 private:
-  typedef shared_ptr<asio::io_service::work> work_ptr;
+  typedef shared_ptr<boost::asio::io_service::work> work_ptr;
 
   /// The pool of io_services.
   vector<IOServicePtr> io_services_;

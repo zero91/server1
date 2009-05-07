@@ -1,2 +1,5 @@
 StaticLibrary('base',
-  ['base.hpp', 'buffer.hpp'])
+  ['base.hpp',
+   'buffer.hpp',
+   'lookup3.c',
+   'lookup8.c',])
