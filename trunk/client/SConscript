@@ -9,10 +9,13 @@ client_env.StaticLibrary(
    'channel.cpp',
    'client_connection.hpp',
    'protobuf_client_connection.hpp',
+   'listener.hpp',
+   'listener.cpp'
    ],
    )
 
 Test(env, 'rpc')
+Test(env, 'listener')
 client_env.Program(
   target = 'rpc_main',
   source = ['rpc_main.cpp'])

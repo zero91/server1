@@ -13,6 +13,10 @@ class ClientConnection {
     listener_ = listener;
   }
 
+  bool IsConnected() const {
+    return socket_.is_open();
+  }
+
   bool Connect(const string &server, const string &port) {
     boost::asio::ip::tcp::resolver::query query(server, port);
     boost::asio::ip::tcp::resolver resolver(*io_service_.get());
