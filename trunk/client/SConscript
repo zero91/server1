@@ -13,3 +13,6 @@ client_env.StaticLibrary(
    )
 
 Test(env, 'client')
+client_env.Program(
+  target = 'client',
+  source = ['client_main.cpp'])

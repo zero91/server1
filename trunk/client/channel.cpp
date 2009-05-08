@@ -6,16 +6,20 @@ void RpcChannel::CallMethod(const google::protobuf::MethodDescriptor *method,
                          google::protobuf::Message *response,
                          google::protobuf::Closure *done) {
   encoder_.Init();
-  if (encoder_.Encode(method->full_name(), request)) {
+  if (!encoder_.Encode(method->full_name(), request)) {
+    LOG(WARNING) << "encode error!";
     controller->SetFailed("Encode failed");
     return;
   }
   if (!client_.Connect(server_, port_)) {
+    LOG(WARNING) << "connect failed";
     controller->SetFailed("Fail to connection " +
                           server_ + " : " + port_);
     done->Run();
     return;
   }
+  VLOG(3) << "connect to " << server_ << ":" << port_ << " success";
+  client_.Send(encoder_.ToBuffers());
   client_.set_listener(boost::bind(
       &RpcChannel::HandleResponse, this,
       _1,
@@ -30,17 +34,21 @@ void RpcChannel::HandleResponse(
   if (line_format == NULL) {
     LOG(WARNING) << "Reply line format is null";
     controller->SetFailed("Reply line format is null.");
-    done->Run();
+    if (done) done->Run();
     return;
   }
+  VLOG(3) << "Handle response message "
+          << response->GetDescriptor()->full_name()
+          << " content: " << line_format->body
+          << " size: " << line_format->body.size();
   if (!response->ParseFromArray(line_format->body.c_str(),
                                 line_format->body.size())) {
     LOG(WARNING) << "Fail to parse the response, name:"
                  << line_format->name;
     controller->SetFailed("Fail to parse the response, name:" +
                           line_format->name);
-    done->Run();
+    if (done) done->Run();
     return;
   }
-  done->Run();
+  if (done) done->Run();
 }

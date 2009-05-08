@@ -15,6 +15,7 @@ typedef vector<boost::asio::const_buffer> ConstBufferVector;
 class ProtobufEncoder {
  public:
   void Init() {
+    VLOG(3) << "Encode init";
     header_.clear();
     body_.clear();
     buffers_.clear();
@@ -25,10 +26,13 @@ class ProtobufEncoder {
   }
 
   bool Encode(const string &name, const google::protobuf::Message *msg) {
+    VLOG(3) << "Encode : " << name;
     if (!msg->AppendToString(&body_)) {
+      VLOG(3) << "Append Message : " << name << " failed";
       return false;
     }
     if (body_.empty()) {
+      VLOG(3) << "message is null";
       return false;
     }
     header_.append(boost::lexical_cast<string>(name.size()));
@@ -38,6 +42,8 @@ class ProtobufEncoder {
     header_.append(":");
     buffers_.push_back(boost::asio::const_buffer(header_.c_str(), header_.size()));
     buffers_.push_back(boost::asio::const_buffer(body_.c_str(), body_.size()));
+    VLOG(3) << "header: " << header_ << boost::asio::buffer_size(buffers_[0]);;
+    VLOG(3) << "body: " << body_ << boost::asio::buffer_size(buffers_[1]);
     return true;
   }
   const ConstBufferVector &ToBuffers() const {
@@ -114,8 +120,8 @@ class ProtobufReply {
   ProtobufReply() : status_(IDLE),
                     reply_status_(SUCCEED_WITHOUT_CONTENT) {
   }
-  vector<boost::asio::const_buffer> ToBuffers() {
-    return vector<boost::asio::const_buffer> ();
+  const ConstBufferVector &ToBuffers() {
+    return encoder_.ToBuffers();
   }
 
   ReplyStatus reply_status() const {

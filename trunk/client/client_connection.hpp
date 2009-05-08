@@ -20,11 +20,10 @@ class ClientConnection {
       resolver.resolve(query);
     boost::asio::ip::tcp::resolver::iterator end;
     // Try each endpoint until we successfully establish a connection.
-    boost::asio::ip::tcp::socket socket(*io_service_.get());
     boost::system::error_code error = boost::asio::error::host_not_found;
     while (error && endpoint_iterator != end) {
-      socket.close();
-      socket.connect(*endpoint_iterator++, error);
+      socket_.close();
+      socket_.connect(*endpoint_iterator++, error);
     }
     if (error) {
       LOG(WARNING) << ":fail to connect, error:"  << error.message();
@@ -69,6 +68,7 @@ class ClientConnection {
         listener_(NULL);
         return;
       } else {
+        LOG(INFO) << "Continue to read";
         socket_.async_read_some(
             boost::asio::buffer(buffer_),
             boost::bind(&ClientConnection::HandleRead, this,

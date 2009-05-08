@@ -2,6 +2,7 @@
 #include "server/server.hpp"
 #include <gtest/gtest.h>
 #include "proto/hello.pb.h"
+#include "boost/thread.hpp"
 
 DEFINE_string(server, "localhost", "The test server");
 DEFINE_string(port, "6789", "The test server");
@@ -13,7 +14,8 @@ class EchoServiceImpl : public Hello::EchoService {
   EchoServiceImpl() {
   }
 
-  virtual void Echo(const Hello::EchoRequest *request,
+  virtual void Echo(::google::protobuf::RpcController*,
+                    const Hello::EchoRequest *request,
                     Hello::EchoResponse *response,
                     google::protobuf::Closure *done) {
     LOG(INFO) << "Echo ServiceImpl called";
@@ -32,7 +34,8 @@ class EchoTest : public testing::Test {
       server_(FLAGS_server, FLAGS_port, FLAGS_num_threads,
               connection_),
       channel_(client_io_service_, FLAGS_server, FLAGS_port),
-      stub_(&channel_) {
+      stub_(&channel_),
+      server_thread_(boost::bind(&Server::Run, &server_)) {
     connection_->RegisterService(&echo_service_);
     done_.reset(google::protobuf::NewPermanentCallback(
       this, &EchoTest::CallDone));
@@ -50,6 +53,7 @@ class EchoTest : public testing::Test {
   RpcChannel channel_;
   Hello::EchoService::Stub stub_;
   scoped_ptr<google::protobuf::Closure> done_;
+  boost::thread server_thread_;
 };
 
 TEST_F(EchoTest, Test1) {
@@ -57,7 +61,6 @@ TEST_F(EchoTest, Test1) {
   Hello::EchoResponse response;
   request.set_question("hello");
   RpcController controller;
-  controller.SetFailed("initial failed");
   stub_.Echo(&controller,
               &request,
               &response,

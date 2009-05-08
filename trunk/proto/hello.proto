@@ -9,8 +9,8 @@ message EchoRequest {
 }
 
 message EchoResponse {
-  optional bool echoed = 1;
-  optional string text = 2;
+  required bool echoed = 1;
+  required string text = 2;
 }
 
 service EchoService {

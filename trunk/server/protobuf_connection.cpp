@@ -98,6 +98,7 @@ bool ProtobufRequestHandler::HandleService(
 }
 
 void ProtobufRequestHandler::CallServiceMethodDone(ProtobufReply *reply) {
+  VLOG(3) << "CallServiceMethodDone()";
   if (!reply->Encode()) {
     reply->set_reply_status(ProtobufReply::SUCCEED_WITHOUT_CONTENT);
   } else {
