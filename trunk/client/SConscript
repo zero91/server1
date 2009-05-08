@@ -12,7 +12,7 @@ client_env.StaticLibrary(
    ],
    )
 
-Test(env, 'client')
+Test(env, 'rpc')
 client_env.Program(
-  target = 'client',
-  source = ['client_main.cpp'])
+  target = 'rpc_main',
+  source = ['rpc_main.cpp'])

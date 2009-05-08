@@ -1,8 +1,17 @@
 package Hello;
 message LexiconCast {
   required string v1 = 1;
-  optional int32 v2 = 2;
-};
+  required int32 v2 = 2;
+}
+
+message IncRequest {
+  required int32 v = 1;
+  required int32 step = 2;
+}
+
+message IncResponse {
+  required int32 v = 1;
+}
 
 message EchoRequest {
   required string question = 1;
