@@ -20,3 +20,4 @@ Automatic links to other wiki pages
     * d. glog
     * e. protobuf
     * f. gtest
+  * run scons under path/src
