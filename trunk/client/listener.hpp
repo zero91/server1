@@ -28,9 +28,24 @@ class Listener : public boost::noncopyable {
   bool Connect() {
     return client_.Connect(server_, port_);
   }
+  bool Send(shared_ptr<google::protobuf::Message> message) {
+    shared_ptr<ProtobufEncoder> encoder(new ProtobufEncoder(message));
+    if (!encoder->Encoded()) {
+      LOG(WARNING) << "encode error!";
+      return false;
+    }
+
+    if (!client_.IsConnected()) {
+      if (!client_.Connect(server_, port_)) {
+        LOG(WARNING) << "connect failed";
+        return false;
+      }
+    }
+    client_.Send(encoder->ToBuffers(), ObjectT<ProtobufEncoder>::Create(encoder));
+  }
   template <typename MessageType>
   void Listen(const boost::function1<void, shared_ptr<MessageType> > &callback) {
-    shared_ptr<MessageType> msg(new MessageType);
+    scoped_ptr<MessageType> msg(new MessageType);
     const string &msg_name = msg->GetDescriptor()->full_name();
     if (handler_table_.find(msg_name) != handler_table_.end()) {
       LOG(WARNING) << "Listen on " << msg_name << " is duplicated.";
@@ -40,7 +55,6 @@ class Listener : public boost::noncopyable {
       boost::bind(&Listener::ReceiveMessage<MessageType>,
                   this,
                   _1,
-                  msg,
                   callback);
     handler_table_.insert(make_pair(
         msg_name,
@@ -50,9 +64,8 @@ class Listener : public boost::noncopyable {
   void Receive(const ProtobufLineFormat *line_format);
   template <typename MessageType>
   void ReceiveMessage(const ProtobufLineFormat *line_format,
-                      shared_ptr<MessageType> message_prototype,
                       const boost::function1<void, shared_ptr<MessageType> > &callback) {
-    shared_ptr<MessageType> message(message_prototype->New());
+    shared_ptr<MessageType> message(new MessageType);
     if (!message->ParseFromArray(line_format->body.c_str(),
                                  line_format->body.size())) {
       LOG(WARNING) << "Fail to parse message " << line_format->name;
@@ -60,7 +73,6 @@ class Listener : public boost::noncopyable {
     callback(message);
   }
   string server_, port_;
-  ProtobufEncoder encoder_;
   ProtobufClientConnection client_;
   HandlerTable handler_table_;
 };

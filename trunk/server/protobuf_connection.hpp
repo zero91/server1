@@ -12,14 +12,33 @@ typedef vector<boost::asio::const_buffer> ConstBufferVector;
 // Encoder the Protobuf to line format.
 // The line format is:
 // name_length:name body_length:body
-class ProtobufEncoder {
+class ProtobufEncoder : public Object {
  public:
-  void Init() {
-    VLOG(3) << "Encode init";
-    header_.clear();
-    body_.clear();
-    buffers_.clear();
+  ProtobufEncoder(shared_ptr<google::protobuf::Message> msg)
+    : shared_msg_(msg) {
+    encoded_ = Encode(shared_msg_.get());
   }
+  ProtobufEncoder(const string &name,
+                  shared_ptr<google::protobuf::Message> msg)
+    : shared_msg_(msg) {
+    encoded_ = Encode(name, shared_msg_.get());
+  }
+  ProtobufEncoder(const google::protobuf::Message *msg)
+    : msg_(msg) {
+    encoded_ = Encode(msg_);
+  }
+  ProtobufEncoder(const string &name,
+                  const google::protobuf::Message *msg)
+    : msg_(msg) {
+    encoded_ = Encode(name, msg_);
+  }
+  const ConstBufferVector &ToBuffers() const {
+    return buffers_;
+  }
+  bool Encoded() const {
+    return encoded_;
+  }
+ private:
   bool Encode(const google::protobuf::Message *msg) {
     const string &msg_name = msg->GetDescriptor()->full_name();
     return Encode(msg_name, msg);
@@ -46,15 +65,15 @@ class ProtobufEncoder {
     VLOG(3) << "body: " << body_ << boost::asio::buffer_size(buffers_[1]);
     return true;
   }
-  const ConstBufferVector &ToBuffers() const {
-    return buffers_;
-  }
- private:
+  const google::protobuf::Message *msg_;
+  shared_ptr<google::protobuf::Message> shared_msg_;
   string header_, body_;
   ConstBufferVector buffers_;
+  bool encoded_;
 };
 
 struct ProtobufLineFormat {
+  typedef ProtobufEncoder Encoder;
   string name_length_store;
   int name_length;
   Buffer<char> name_store;
@@ -120,10 +139,6 @@ class ProtobufReply {
   ProtobufReply() : status_(IDLE),
                     reply_status_(SUCCEED_WITHOUT_CONTENT) {
   }
-  const ConstBufferVector &ToBuffers() {
-    return encoder_.ToBuffers();
-  }
-
   ReplyStatus reply_status() const {
     return reply_status_;
   }
@@ -139,26 +154,34 @@ class ProtobufReply {
   Status status() const {
     return status_;
   }
-  bool Encode() {
-    encoder_.Init();
-    return encoder_.Encode(response_message_.get());
+
+  void Reset() {
+    status_ = IDLE;
+    reply_status_ = SUCCEED_WITHOUT_CONTENT;
+    encoders_.clear();
   }
 
   bool IsRunning() const {
     return status_ == RUNNING;
   }
 
-  void set_request_message(google::protobuf::Message *msg) {
-    request_message_.reset(msg);
+  void PushMessage(shared_ptr<google::protobuf::Message> msg) {
+    boost::mutex::scoped_lock locker(encoder_list_mutex_);
+    encoders_.push_back(shared_ptr<ProtobufEncoder>(new ProtobufEncoder(msg)));
   }
 
-  void set_response_message(google::protobuf::Message *msg) {
-    response_message_.reset(msg);
+  shared_ptr<ProtobufEncoder> PopEncoder() {
+    boost::mutex::scoped_lock locker(encoder_list_mutex_);
+    if (encoders_.empty()) {
+      return shared_ptr<ProtobufEncoder>(static_cast<ProtobufEncoder*>(NULL));
+    }
+    shared_ptr<ProtobufEncoder> ret = encoders_.front();
+    encoders_.pop_front();
+    return ret;
   }
  private:
-  scoped_ptr<google::protobuf::Message> request_message_;
-  scoped_ptr<google::protobuf::Message> response_message_;
-  ProtobufEncoder encoder_;
+  boost::mutex encoder_list_mutex_;
+  std::list<shared_ptr<ProtobufEncoder> > encoders_;
   Status status_;
   ReplyStatus reply_status_;
 };
@@ -179,8 +202,44 @@ class ProtobufRequestHandler {
                      ProtobufReply *reply);
   void HandleLineFormat(const ProtobufLineFormat &request, ProtobufReply *reply);
   void RegisterService(google::protobuf::Service *service);
+  template <typename MessageType>
+  void RegisterListener(const boost::function2<void,
+                        shared_ptr<MessageType>,
+                        ProtobufReply* > &callback) {
+    scoped_ptr<MessageType> msg(new MessageType);
+    const string &msg_name = msg->GetDescriptor()->full_name();
+    if (handler_table_->find(msg_name) != handler_table_->end()) {
+      LOG(WARNING) << "Listen on " << msg_name << " is duplicated.";
+      return;
+    }
+    boost::function2<void, const ProtobufLineFormat&, ProtobufReply*> handler =
+      boost::bind(&ProtobufRequestHandler::ReceiveMessage<MessageType>,
+                  this,
+                  _1,
+                  callback, _2);
+    handler_table_->insert(make_pair(
+        msg_name,
+        handler));
+  }
  private:
-  void CallServiceMethodDone(ProtobufReply *reply);
+  template <typename MessageType>
+  void ReceiveMessage(const ProtobufLineFormat& line_format,
+                      boost::function2<void, shared_ptr<MessageType>,
+                      ProtobufReply * > callback,
+                      ProtobufReply *reply) {
+    reply->Reset();
+    shared_ptr<MessageType> message(new MessageType);
+    if (!message->ParseFromArray(
+        line_format.body.c_str(),
+        line_format.body.size())) {
+      LOG(WARNING) << line_format.name << " invalid format";
+      return;
+    }
+    callback(message, reply);
+  }
+  void CallServiceMethodDone(boost::tuple<google::protobuf::Message *,
+                             google::protobuf::Message *,
+                             ProtobufReply *> tuple);
   shared_ptr<RequestHandlerTable> handler_table_;
 };
 
@@ -199,9 +258,12 @@ class ProtobufConnection : public ConnectionImpl<
     boost::mutex::scoped_lock locker(mutex_);
     lineformat_handler_.RegisterService(service);
   }
-  template <class CL, class MessageType>
-  void RegisterListener(CL *ptr, void (CL::*member)(const MessageType *)) {
+  template <class MessageType>
+  void RegisterListener(const boost::function2<void,
+                        shared_ptr<MessageType>,
+                        ProtobufReply*> &callback) {
     boost::mutex::scoped_lock locker(mutex_);
+    lineformat_handler_.RegisterListener(callback);
   }
 
  private:

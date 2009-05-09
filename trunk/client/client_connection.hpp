@@ -41,12 +41,20 @@ class ClientConnection {
     return true;
   }
   void Send(const ConstBufferVector &buffers) {
+    return Send(buffers, shared_ptr<Object>(static_cast<Object*>(NULL)));
+  }
+
+  void Send(const ConstBufferVector &buffers, shared_ptr<Object> resource) {
     boost::asio::async_write(
         socket_, buffers,
-        boost::bind(&ClientConnection::HandleWrite, this,
-                    boost::asio::placeholders::error));
+        boost::bind(&ClientConnection::HandleWriteWithReleaseResource, this,
+                    boost::asio::placeholders::error, resource));
   }
  private:
+  void HandleWriteWithReleaseResource(const boost::system::error_code &err,
+                   shared_ptr<Object> resource) {
+    return HandleWrite(err);
+  }
   void HandleWrite(const boost::system::error_code &err) {
     if (err) {
       LOG(WARNING) << "Write fail";

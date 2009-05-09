@@ -45,11 +45,11 @@ class RpcChannel : public google::protobuf::RpcChannel {
       const ProtobufLineFormat *line_format,
       google::protobuf::RpcController *controller,
       google::protobuf::Message *response,
-      google::protobuf::Closure *done
+      google::protobuf::Closure *done,
+      shared_ptr<ProtobufEncoder> encoder
       );
   IOServicePtr io_service_;
   string server_, port_;
-  ProtobufEncoder encoder_;
   ProtobufClientConnection client_;
 };
 #endif  // CHANNEL_HPP_

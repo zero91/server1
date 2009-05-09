@@ -36,6 +36,7 @@ class EchoTest : public testing::Test {
       channel_(client_io_service_, FLAGS_server, FLAGS_port),
       stub_(&channel_),
       server_thread_(boost::bind(&Server::Run, &server_)) {
+    VLOG(2) << "Register service";
     connection_->RegisterService(&echo_service_);
     done_.reset(google::protobuf::NewPermanentCallback(
       this, &EchoTest::CallDone));
@@ -70,6 +71,8 @@ TEST_F(EchoTest, Test1) {
 }
 
 int main(int argc, char **argv) {
+  google::ParseCommandLineFlags(&argc, &argv, true);
+  google::InitGoogleLogging(argv[0]);
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

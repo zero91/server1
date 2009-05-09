@@ -87,25 +87,26 @@ bool ProtobufRequestHandler::HandleService(
     return false;
   }
   google::protobuf::Message *response = response_prototype->New();
-  reply->set_request_message(request);
-  reply->set_response_message(response);
   google::protobuf::Closure *done = google::protobuf::NewCallback(
       this,
       &ProtobufRequestHandler::CallServiceMethodDone,
-      reply);
+      boost::make_tuple(request, response, reply));
   service->CallMethod(method, NULL, request, response, done);
   return true;
 }
 
-void ProtobufRequestHandler::CallServiceMethodDone(ProtobufReply *reply) {
+void ProtobufRequestHandler::CallServiceMethodDone(
+    boost::tuple<google::protobuf::Message *,
+                 google::protobuf::Message *,
+                 ProtobufReply*> tuple) {
+  google::protobuf::Message *request = tuple.get<0>();
+  google::protobuf::Message *response = tuple.get<1>();
+  ProtobufReply *reply = tuple.get<2>();
+  reply->PushMessage(shared_ptr<google::protobuf::Message>(response));
   VLOG(3) << "CallServiceMethodDone()";
-  if (!reply->Encode()) {
-    reply->set_reply_status(ProtobufReply::SUCCEED_WITHOUT_CONTENT);
-  } else {
-    reply->set_reply_status(ProtobufReply::SUCCEED_WITH_CONTENT);
-  }
   // Service is short connection.
   reply->set_status(ProtobufReply::TERMINATED);
+  delete request;
 }
 
 void ProtobufRequestHandler::RegisterService(

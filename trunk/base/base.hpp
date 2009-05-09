@@ -6,6 +6,7 @@
 #include "pcre_stringpiece.h"
 typedef pcrecpp::StringPiece StringPiece;
 
+#include "boost/tuple/tuple.hpp"
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
 #include <boost/bind.hpp>
@@ -43,4 +44,5 @@ using namespace __gnu_cxx;
 
 #include "buffer.hpp"
 #include "hash.hpp"
+#include "object.hpp"
 #endif // BASE_H_
