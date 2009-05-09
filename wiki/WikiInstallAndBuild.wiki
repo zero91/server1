@@ -1,0 +1,21 @@
+#summary One-sentence summary of this page.
+
+= Introduction =
+
+Add your content here.
+
+
+= Details =
+Package should install(assume your source is path/src:
+1. scons
+2. Install all the packages to path/third_party:
+  a. boost1.39
+  b. gflag
+  c. pcre
+  d. glog
+  e. protobuf
+  f. gtest
+Add your content here.  Format your content with:
+  * Text in *bold* or _italic_
+  * Headings, paragraphs, and lists
+  * Automatic links to other wiki pages
