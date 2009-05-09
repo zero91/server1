@@ -20,4 +20,5 @@ Automatic links to other wiki pages
     * d. glog
     * e. protobuf
     * f. gtest
+    * g. tcmalloc (for heap checker)
   * run scons under path/src
