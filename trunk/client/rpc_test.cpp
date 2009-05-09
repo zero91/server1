@@ -67,6 +67,8 @@ TEST_F(EchoTest, Test1) {
               &response,
               done_.get());
   client_io_service_->run();
+  LOG(INFO) << response.text();
+  EXPECT_EQ(request.question(), response.text());
   EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
 }
 
