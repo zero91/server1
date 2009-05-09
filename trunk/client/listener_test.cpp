@@ -10,40 +10,63 @@ DEFINE_string(server, "localhost", "The test server");
 DEFINE_string(port, "6789", "The test server");
 DEFINE_int32(num_threads, 1, "The test server thread number");
 
+class EchoService2Impl : public Hello::EchoService2 {
+ public:
+  virtual void Echo1(FullDualChannel *channel,
+                    const Hello::EchoRequest *request,
+                    Hello::EchoResponse *response,
+                    google::protobuf::Closure *done) {
+    LOG(INFO) << "Echo ServiceImpl called";
+    response->set_echoed(1);
+    response->set_text(request->question());
+    done->Run();
+    EchoService2::Stub stub_(channel);
+    Hello::EchoRequest request2;
+    Hello::EchoResponse *response2 = new Hello::EchoResponse;
+    request2.set_question("hello from server");
+    RpcController controller;
+    google::protobuf::Closure *done2 = google::protobuf::NewCallback(
+        this, &EchoService2Impl::CallEcho2Done, response2);
+    stub_.Echo2(&controller,
+               &request2,
+               response2,
+               done2);
+  }
+  virtual void Echo2(FullDualChannel *channel,
+                    const Hello::EchoRequest *request,
+                    Hello::EchoResponse *response,
+                    google::protobuf::Closure *done) {
+    LOG(INFO) << "Echo2 called";
+    response->set_echoed(2);
+    response->set_text(request->question());
+    done->Run();
+  }
+  void CallEcho2Done(Hello::EchoResponse *response) {
+    delete response;
+  }
+};
 
 class ListenTest : public testing::Test {
  public:
   ListenTest()
-    : connection_(new ProtobufConnection),
-      client_io_service_(new boost::asio::io_service),
+    : server_connection_(new ProtobufConnection),
       server_(FLAGS_server, FLAGS_port, FLAGS_num_threads,
-              connection_),
-      channel_(client_io_service_, FLAGS_server, FLAGS_port),
+              server_connection_),
+      client_io_service_(new boost::asio::io_service),
+      client_channel_(client_io_service_, FLAGS_server, FLAGS_port),
+      client_stub_(&client_channel_),
       server_thread_(boost::bind(&Server::Run, &server_)) {
-    connection_->RegisterListener<Hello::IncRequest>(
-        boost::bind(&ListenTest::ListenIncRequest, this, _1, _2, 10));
   }
 
-  void ListenIncRequest(shared_ptr<Hello::IncRequest> req,
-                        ProtobufReply *reply, int n) {
-    LOG(INFO) << "ListenIncRequest is called" << req->v()
-              << " : " << req->step();
-    for (int i = 0; i < n; ++i) {
-      shared_ptr<Hello::IncResponse> response(new Hello::IncResponse);
-      response->set_v(req->v() + req->step() + i);
-      reply->PushMessage(response);
-    }
-  }
-  void ListenInc(shared_ptr<Hello::IncResponse> response) {
-    LOG(INFO) << "ListenInc is called";
-  }
  protected:
-  shared_ptr<ProtobufConnection> connection_;
+  shared_ptr<ProtobufConnection> server_connection_;
   shared_ptr<boost::asio::io_service> client_io_service_;
   Server server_;
-  RpcChannel channel_;
+  RpcChannel client_channel_;
   RpcController listener_controller_;
   boost::thread server_thread_;
+  Hello::EchoService::Stub client_stub_;
+  EchoService2Impl echo_service_;
 };
 
 TEST_F(ListenTest, Test1) {
@@ -52,10 +75,6 @@ TEST_F(ListenTest, Test1) {
   inc_request->set_step(2);
   Hello::IncResponse response;
   RpcController listen_controller;
-  Listener listener(client_io_service_, FLAGS_server, FLAGS_port);
-  listener.Listen<Hello::IncResponse>(
-      boost::bind(&ListenTest::ListenInc, this, _1));
-  listener.Send(inc_request);
   client_io_service_->run();
 }
 

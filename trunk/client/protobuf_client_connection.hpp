@@ -5,5 +5,3 @@
 typedef ClientConnection<ProtobufLineFormat, ProtobufLineFormatParser>
   ProtobufClientConnection;
 #endif  // PROTOBUF_CLIENT_CONNECTION_HPP_
-
-

@@ -18,10 +18,24 @@ message EchoRequest {
 }
 
 message EchoResponse {
-  required bool echoed = 1;
+  required int32 echoed = 1;
+  required string text = 2;
+}
+
+message EchoRequest2 {
+  required string question = 1;
+}
+
+message EchoResponse2 {
+  required int32 echoed = 1;
   required string text = 2;
 }
 
 service EchoService {
   rpc Echo(EchoRequest) returns (EchoResponse);
+}
+
+service EchoService2 {
+  rpc Echo1(EchoRequest) returns (EchoResponse);
+  rpc Echo2(EchoRequest2) returns (EchoResponse2);
 }

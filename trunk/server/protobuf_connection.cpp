@@ -3,13 +3,10 @@ ProtobufLineFormatParser::ProtobufLineFormatParser()
   : state_(Start) {
 }
 
-void ProtobufLineFormatParser::reset() {
-  state_ = Start;
-}
-
 boost::tribool ProtobufLineFormatParser::Consume(
     ProtobufLineFormat* req, char input) {
   switch (state_) {
+    case End:
     case Start:
       {
         if (!isdigit(input)) {
@@ -72,13 +69,15 @@ boost::tribool ProtobufLineFormatParser::Consume(
       return false;
   }
 }
-bool ProtobufRequestHandler::HandleService(
+bool ProtobufHandler::HandleService(
     google::protobuf::Service *service,
     const google::protobuf::MethodDescriptor *method,
     const google::protobuf::Message *request_prototype,
     const google::protobuf::Message *response_prototype,
     const ProtobufLineFormat &protobuf_request,
+    FullDualChannel *connection,
     ProtobufReply *reply) {
+  VLOG(2) << "Handler service: " << method->full_name();
   google::protobuf::Message *request = request_prototype->New();
   if (!request->ParseFromArray(
       protobuf_request.body.c_str(),
@@ -87,29 +86,27 @@ bool ProtobufRequestHandler::HandleService(
     return false;
   }
   google::protobuf::Message *response = response_prototype->New();
-  google::protobuf::Closure *done = google::protobuf::NewCallback(
-      this,
-      &ProtobufRequestHandler::CallServiceMethodDone,
-      boost::make_tuple(request, response, reply));
-  service->CallMethod(method, NULL, request, response, done);
+
+  google::protobuf::Closure *done = NewClosure(
+      boost::bind(&ProtobufHandler::CallServiceMethodDone,
+                  this,
+                  request,
+                  response,
+                  reply));
+  service->CallMethod(method, connection, request, response, done);
   return true;
 }
 
-void ProtobufRequestHandler::CallServiceMethodDone(
-    boost::tuple<google::protobuf::Message *,
-                 google::protobuf::Message *,
-                 ProtobufReply*> tuple) {
-  google::protobuf::Message *request = tuple.get<0>();
-  google::protobuf::Message *response = tuple.get<1>();
-  ProtobufReply *reply = tuple.get<2>();
+void ProtobufHandler::CallServiceMethodDone(
+    google::protobuf::Message *request,
+    google::protobuf::Message *response,
+    ProtobufReply *reply) {
   reply->PushMessage(shared_ptr<google::protobuf::Message>(response));
   VLOG(3) << "CallServiceMethodDone()";
-  // Service is short connection.
-  reply->set_status(ProtobufReply::TERMINATED);
   delete request;
 }
 
-void ProtobufRequestHandler::RegisterService(
+void ProtobufHandler::RegisterService(
     google::protobuf::Service *service) {
   const google::protobuf::ServiceDescriptor *service_descriptor =
     service->GetDescriptor();
@@ -117,23 +114,86 @@ void ProtobufRequestHandler::RegisterService(
     const google::protobuf::MethodDescriptor *method = service_descriptor->method(i);
     const google::protobuf::Message *request = &service->GetRequestPrototype(method);
     const google::protobuf::Message *response = &service->GetResponsePrototype(method);
-    RequestHandler handler = boost::bind(
-        &ProtobufRequestHandler::HandleService, this,
+    ProtobufLineFormatHandler handler = boost::bind(
+        &ProtobufHandler::HandleService, this,
         service,
         method,
-        request, response, _1, _2);
+        request, response, _1, _2, _3);
     handler_table_->insert(make_pair(method->full_name(), handler));
   }
 }
 
-void ProtobufRequestHandler::HandleLineFormat(
-    const ProtobufLineFormat &request, ProtobufReply *reply) {
-  VLOG(2) << "Handle request: " << request.name;
-  RequestHandlerTable::const_iterator it = handler_table_->find(
+void ProtobufHandler::HandleLineFormat(
+    const ProtobufLineFormat &request,
+    FullDualChannel *connection,
+    ProtobufReply *reply) {
+  VLOG(2) << "Handle request: " << request.name << " Handler table size: "
+          << handler_table_->size();
+  HandlerTable::const_iterator it = handler_table_->find(
       request.name);
   if (it == handler_table_->end()) {
+    VLOG(2) << "Unknown request";
     reply->set_reply_status(ProtobufReply::UNKNOWN_REQUEST);
     return;
   }
-  it->second(request, reply);
+  it->second(request, connection, reply);
+}
+
+bool ProtobufHandler::PushResponseCallback(
+      const string &name,
+      const ProtobufResponseQueue::ResponseHandler &call) {
+  VLOG(2) << "Push response: " << name;
+  ResponseHandlerTable::iterator it = response_handler_table_->find(name);
+  if (it == response_handler_table_->end()) {
+    shared_ptr<ProtobufResponseQueue> response_queue(new ProtobufResponseQueue);
+    ProtobufLineFormatHandler response_handler = boost::bind(
+        &ProtobufResponseQueue::HandleResponse,
+        response_queue->shared_from_this(),
+        _1, _2, _3);
+    response_handler_table_->insert(make_pair(name, response_queue));
+    VLOG(2) << "response_name: " << name;
+    if (handler_table_->find(name) == handler_table_->end()) {
+      handler_table_->insert(make_pair(name, response_handler));
+    }
+    VLOG(2) << "Add Unknown response type: " << name << " table size: " <<
+      response_handler_table_->size();
+    it = response_handler_table_->find(name);
+  }
+  it->second->PushResponseCallback(call);
+  return true;
+}
+
+void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
+                  google::protobuf::RpcController *controller,
+                  const google::protobuf::Message *request,
+                  google::protobuf::Message *response,
+                  google::protobuf::Closure *done) {
+  reply_.PushMessage(method->full_name(), request);
+  handler_.PushResponseCallback(
+      response->GetDescriptor()->full_name(),
+      boost::bind(&ProtobufConnection::CallMethodCallback, this,
+                  _1, controller, response, done));
+  ScheduleWrite();
+  ScheduleRead();
+}
+
+void ProtobufConnection::CallMethodCallback(
+    const ProtobufLineFormat &line_format,
+    google::protobuf::RpcController *controller,
+    google::protobuf::Message *response,
+    google::protobuf::Closure *done) {
+  VLOG(3) << "Handle response message "
+          << response->GetDescriptor()->full_name()
+          << " content: " << line_format.body
+          << " size: " << line_format.body.size();
+  if (!response->ParseFromArray(line_format.body.c_str(),
+                                line_format.body.size())) {
+    LOG(WARNING) << "Fail to parse the response, name:"
+                 << line_format.name;
+    controller->SetFailed("Fail to parse the response, name:" +
+                          line_format.name);
+    if (done) done->Run();
+    return;
+  }
+  if (done) done->Run();
 }

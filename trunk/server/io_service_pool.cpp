@@ -1,6 +1,7 @@
 #include "server/io_service_pool.hpp"
 #include <boost/thread.hpp>
 #include <boost/bind.hpp>
+#include <glog/logging.h>
 IOServicePool::IOServicePool(size_t pool_size)
   : next_io_service_(0) {
   if (pool_size == 0)
@@ -26,8 +27,9 @@ void IOServicePool::Run() {
   }
 
   // Wait for all threads in the pool to exit.
-  for (size_t i = 0; i < threads.size(); ++i)
-    threads[i]->join();
+  for (size_t i = 0; i < threads.size(); ++i) {
+    threads[i]->timed_join(boost::posix_time::millisec(10));
+  }
 }
 
 void IOServicePool::Stop() {

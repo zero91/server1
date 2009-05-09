@@ -40,5 +40,6 @@ private:
   ConnectionPtr new_connection_;
   // The original connection with the handler table.
   ConnectionPtr connection_;
+  shared_ptr<boost::asio::ip::tcp::socket> socket_;
 };
 #endif // NET2_SERVER_HPP

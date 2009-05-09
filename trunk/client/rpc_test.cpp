@@ -1,4 +1,4 @@
-#include "client/channel.hpp"
+#include "client/client_connection.hpp"
 #include "server/server.hpp"
 #include <gtest/gtest.h>
 #include "proto/hello.pb.h"
@@ -29,15 +29,19 @@ class EchoServiceImpl : public Hello::EchoService {
 class EchoTest : public testing::Test {
  public:
   EchoTest()
-    : connection_(new ProtobufConnection),
+    : server_connection_(new ProtobufConnection),
       client_io_service_(new boost::asio::io_service),
       server_(FLAGS_server, FLAGS_port, FLAGS_num_threads,
-              connection_),
-      channel_(client_io_service_, FLAGS_server, FLAGS_port),
-      stub_(&channel_),
+              server_connection_),
+      client_connection_(new ClientConnection(
+          client_io_service_,
+          FLAGS_server, FLAGS_port)),
+      stub_(client_connection_.get()),
       server_thread_(boost::bind(&Server::Run, &server_)) {
     VLOG(2) << "Register service";
-    connection_->RegisterService(&echo_service_);
+    server_connection_->RegisterService(&echo_service_);
+    CHECK(!client_connection_->IsConnected());
+    CHECK(client_connection_->Connect());
     done_.reset(google::protobuf::NewPermanentCallback(
       this, &EchoTest::CallDone));
   }
@@ -47,11 +51,11 @@ class EchoTest : public testing::Test {
     client_io_service_->stop();
   }
  protected:
-  shared_ptr<ProtobufConnection> connection_;
+  shared_ptr<ProtobufConnection> server_connection_;
   shared_ptr<boost::asio::io_service> client_io_service_;
+  shared_ptr<ClientConnection> client_connection_;
   Server server_;
   EchoServiceImpl echo_service_;
-  RpcChannel channel_;
   Hello::EchoService::Stub stub_;
   scoped_ptr<google::protobuf::Closure> done_;
   boost::thread server_thread_;
@@ -67,6 +71,7 @@ TEST_F(EchoTest, Test1) {
               &response,
               done_.get());
   client_io_service_->run();
+  VLOG(2) << "client service return";
   LOG(INFO) << response.text();
   EXPECT_EQ(request.question(), response.text());
   EXPECT_FALSE(controller.Failed()) << controller.ErrorText();

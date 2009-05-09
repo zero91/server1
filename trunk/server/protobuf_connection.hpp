@@ -61,7 +61,7 @@ class ProtobufEncoder : public Object {
     header_.append(":");
     buffers_.push_back(boost::asio::const_buffer(header_.c_str(), header_.size()));
     buffers_.push_back(boost::asio::const_buffer(body_.c_str(), body_.size()));
-    VLOG(3) << "header: " << header_ << boost::asio::buffer_size(buffers_[0]);;
+    VLOG(3) << "header: " << header_;
     VLOG(3) << "body: " << body_ << boost::asio::buffer_size(buffers_[1]);
     return true;
   }
@@ -72,25 +72,11 @@ class ProtobufEncoder : public Object {
   bool encoded_;
 };
 
-struct ProtobufLineFormat {
-  typedef ProtobufEncoder Encoder;
-  string name_length_store;
-  int name_length;
-  Buffer<char> name_store;
-  string name;
-  string body_length_store;
-  int body_length;
-  Buffer<char> body_store;
-  string body;
-};
-
+struct ProtobufLineFormat;
 class ProtobufLineFormatParser {
  public:
   /// Construct ready to parse the request method.
   ProtobufLineFormatParser();
-
-  /// Reset to initial parser state.
-  void reset();
 
   /// Parse some data. The boost::tribool return value is true when a complete request
   /// has been parsed, false if the data is invalid, indeterminate when more
@@ -123,6 +109,20 @@ private:
   } state_;
 };
 
+struct ProtobufLineFormat {
+  typedef ProtobufEncoder Encoder;
+  typedef ProtobufLineFormatParser Parser;
+  string name_length_store;
+  int name_length;
+  Buffer<char> name_store;
+  string name;
+  string body_length_store;
+  int body_length;
+  Buffer<char> body_store;
+  string body;
+};
+
+class ProtobufConnection;
 class ProtobufReply {
  public:
   enum Status {
@@ -155,28 +155,40 @@ class ProtobufReply {
     return status_;
   }
 
-  void Reset() {
-    status_ = IDLE;
-    reply_status_ = SUCCEED_WITHOUT_CONTENT;
-    encoders_.clear();
-  }
-
   bool IsRunning() const {
     return status_ == RUNNING;
   }
 
-  void PushMessage(shared_ptr<google::protobuf::Message> msg) {
+  void PushMessage(const string &name, const google::protobuf::Message *msg) {
     boost::mutex::scoped_lock locker(encoder_list_mutex_);
-    encoders_.push_back(shared_ptr<ProtobufEncoder>(new ProtobufEncoder(msg)));
+    encoders_.push_back(shared_ptr<ProtobufEncoder>(new ProtobufEncoder(name, msg)));
+    VLOG(2) << "encoder size: " << encoders_.size();
+  }
+
+  void PushMessage(const google::protobuf::Message *msg) {
+    return PushMessage(msg->GetDescriptor()->full_name(), msg);
+  }
+
+  void PushMessage(const string &name, shared_ptr<google::protobuf::Message> msg) {
+    boost::mutex::scoped_lock locker(encoder_list_mutex_);
+    encoders_.push_back(shared_ptr<ProtobufEncoder>(new ProtobufEncoder(name, msg)));
+  }
+
+  void PushMessage(shared_ptr<google::protobuf::Message> msg) {
+    return PushMessage(msg->GetDescriptor()->full_name(), msg);
   }
 
   shared_ptr<ProtobufEncoder> PopEncoder() {
     boost::mutex::scoped_lock locker(encoder_list_mutex_);
+    VLOG(2) << "PopEncoder size:" << encoders_.size();
     if (encoders_.empty()) {
+      VLOG(2) << "encoders empty";
       return shared_ptr<ProtobufEncoder>(static_cast<ProtobufEncoder*>(NULL));
     }
     shared_ptr<ProtobufEncoder> ret = encoders_.front();
+    VLOG(2) << "encoders size:" << encoders_.size();
     encoders_.pop_front();
+    VLOG(2) << "encoders size:" << encoders_.size();
     return ret;
   }
  private:
@@ -184,90 +196,90 @@ class ProtobufReply {
   std::list<shared_ptr<ProtobufEncoder> > encoders_;
   Status status_;
   ReplyStatus reply_status_;
+  friend class ProtobufConnection;
 };
 
-class ProtobufRequestHandler {
- private:
-  typedef boost::function2<
-    void, const ProtobufLineFormat&, ProtobufReply*> RequestHandler;
-  typedef hash_map<string, RequestHandler> RequestHandlerTable;
+typedef boost::function3<
+void, const ProtobufLineFormat&, FullDualChannel *,
+  ProtobufReply*> ProtobufLineFormatHandler;
+class ProtobufResponseQueue : public boost::enable_shared_from_this<ProtobufResponseQueue> {
  public:
-  ProtobufRequestHandler() : handler_table_(new RequestHandlerTable) {
+  typedef boost::function1<void, const ProtobufLineFormat&> ResponseHandler;
+  void HandleResponse(const ProtobufLineFormat &line_format,
+                      FullDualChannel *connection,
+                      ProtobufReply *reply) {
+    VLOG(2) << "Handler response";
+    boost::mutex::scoped_lock locker_(response_queue_mutex_);
+    if (response_queue_.empty()) {
+      LOG(WARNING) << "response queue is empty";
+      return;
+    }
+    ResponseHandler handler = response_queue_.front();
+    response_queue_.pop_front();
+    handler(line_format);
+  }
+
+  void PushResponseCallback(const ResponseHandler &handler) {
+    boost::mutex::scoped_lock locker_(response_queue_mutex_);
+    response_queue_.push_back(handler);
+  }
+ private:
+  list<ResponseHandler> response_queue_;
+  boost::mutex response_queue_mutex_;
+};
+
+class ProtobufHandler {
+ private:
+  typedef hash_map<string, ProtobufLineFormatHandler> HandlerTable;
+  typedef hash_map<string, shared_ptr<ProtobufResponseQueue> >
+    ResponseHandlerTable;
+ public:
+  ProtobufHandler()
+    : handler_table_(new HandlerTable),
+      response_handler_table_(new ResponseHandlerTable) {
   }
   bool HandleService(google::protobuf::Service *service,
                      const google::protobuf::MethodDescriptor *method,
                      const google::protobuf::Message *request_prototype,
                      const google::protobuf::Message *response_prototype,
                      const ProtobufLineFormat &protobuf_request,
+                     FullDualChannel *connection,
                      ProtobufReply *reply);
-  void HandleLineFormat(const ProtobufLineFormat &request, ProtobufReply *reply);
+
+  void HandleLineFormat(const ProtobufLineFormat &request, FullDualChannel *channel, ProtobufReply *reply);
   void RegisterService(google::protobuf::Service *service);
-  template <typename MessageType>
-  void RegisterListener(const boost::function2<void,
-                        shared_ptr<MessageType>,
-                        ProtobufReply* > &callback) {
-    scoped_ptr<MessageType> msg(new MessageType);
-    const string &msg_name = msg->GetDescriptor()->full_name();
-    if (handler_table_->find(msg_name) != handler_table_->end()) {
-      LOG(WARNING) << "Listen on " << msg_name << " is duplicated.";
-      return;
-    }
-    boost::function2<void, const ProtobufLineFormat&, ProtobufReply*> handler =
-      boost::bind(&ProtobufRequestHandler::ReceiveMessage<MessageType>,
-                  this,
-                  _1,
-                  callback, _2);
-    handler_table_->insert(make_pair(
-        msg_name,
-        handler));
-  }
+  bool PushResponseCallback(
+      const string &name,
+      const ProtobufResponseQueue::ResponseHandler &call);
  private:
-  template <typename MessageType>
-  void ReceiveMessage(const ProtobufLineFormat& line_format,
-                      boost::function2<void, shared_ptr<MessageType>,
-                      ProtobufReply * > callback,
-                      ProtobufReply *reply) {
-    reply->Reset();
-    shared_ptr<MessageType> message(new MessageType);
-    if (!message->ParseFromArray(
-        line_format.body.c_str(),
-        line_format.body.size())) {
-      LOG(WARNING) << line_format.name << " invalid format";
-      return;
-    }
-    callback(message, reply);
-  }
-  void CallServiceMethodDone(boost::tuple<google::protobuf::Message *,
-                             google::protobuf::Message *,
-                             ProtobufReply *> tuple);
-  shared_ptr<RequestHandlerTable> handler_table_;
+  void CallServiceMethodDone(google::protobuf::Message *request,
+                             google::protobuf::Message *response,
+                             ProtobufReply *reply);
+  shared_ptr<HandlerTable> handler_table_;
+  shared_ptr<ResponseHandlerTable> response_handler_table_;
 };
 
 class ProtobufConnection : public ConnectionImpl<
-  ProtobufLineFormat, ProtobufRequestHandler, ProtobufLineFormatParser,
-  ProtobufReply> {
+  ProtobufLineFormat, ProtobufHandler, ProtobufReply> {
  public:
   Connection *Clone() {
-    boost::mutex::scoped_lock locker(mutex_);
-    return ConnectionImpl<ProtobufLineFormat,
-           ProtobufRequestHandler,
-           ProtobufLineFormatParser,
-           ProtobufReply>::Clone();
+    ProtobufConnection *connection = new ProtobufConnection;
+    connection->handler_ = handler_;
+    return connection;
   }
   void RegisterService(google::protobuf::Service *service) {
-    boost::mutex::scoped_lock locker(mutex_);
-    lineformat_handler_.RegisterService(service);
+    handler_.RegisterService(service);
   }
-  template <class MessageType>
-  void RegisterListener(const boost::function2<void,
-                        shared_ptr<MessageType>,
-                        ProtobufReply*> &callback) {
-    boost::mutex::scoped_lock locker(mutex_);
-    lineformat_handler_.RegisterListener(callback);
-  }
+  void CallMethod(const google::protobuf::MethodDescriptor *method,
+                  google::protobuf::RpcController *controller,
+                  const google::protobuf::Message *request,
+                  google::protobuf::Message *response,
+                  google::protobuf::Closure *done);
 
- private:
-  boost::mutex mutex_;
-
+  void CallMethodCallback(
+      const ProtobufLineFormat &lineformat,
+      google::protobuf::RpcController *controller,
+      google::protobuf::Message *response,
+      google::protobuf::Closure *done);
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

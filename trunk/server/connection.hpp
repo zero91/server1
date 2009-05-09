@@ -3,74 +3,97 @@
 #include "base/base.hpp"
 #include "glog/logging.h"
 #include "server/io_service_pool.hpp"
-class Connection : public boost::enable_shared_from_this<Connection> {
+#include "protobuf/service.h"
+class FullDualChannel : virtual public google::protobuf::RpcController,
+  virtual public google::protobuf::RpcChannel {
  public:
-  void set_io_service(IOServicePtr io_service) {
-    io_service_ = io_service;
-    socket_.reset(new boost::asio::ip::tcp::socket(*io_service_.get()));
+  virtual void RegisterService(google::protobuf::Service *service) = 0;
+  virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
+                          google::protobuf::RpcController *controller,
+                          const google::protobuf::Message *request,
+                          google::protobuf::Message *response,
+                          google::protobuf::Closure *done) = 0;
+  void SetFailed(const string &failed) {
+    failed_ = failed;
+  }
+  bool Failed() const {
+    return !failed_.empty();
+  }
+  string ErrorText() const {
+    return failed_;
+  }
+  void StartCancel() {
+  }
+  bool IsCanceled() const {
+    return false;
+  }
+  void NotifyOnCancel(google::protobuf::Closure *callback) {
+  }
+  void Reset() {
+    failed_.clear();
+  }
+ private:
+  string failed_;
+};
+
+class Connection : public boost::enable_shared_from_this<Connection>, public FullDualChannel {
+ public:
+  void set_socket(shared_ptr<boost::asio::ip::tcp::socket> socket) {
+    socket_ = socket;
+  }
+
+  shared_ptr<boost::asio::ip::tcp::socket> socket() const {
+    return socket_;
   }
   virtual ~Connection() {}
 
-  virtual void Start() = 0;
+  virtual void ScheduleRead() = 0;
   virtual Connection *Clone() = 0;
   virtual void ScheduleWrite() = 0;
   virtual void Close() {
     socket_->close();
   }
-  boost::asio::ip::tcp::socket *socket() {
-    return socket_.get();
-  }
- private:
-  IOServicePtr io_service_;
  protected:
+  static const int kBufferSize = 8192;
+  typedef boost::array<char, kBufferSize> Buffer;
   virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred) = 0;
+      size_t bytes_transferred, shared_ptr<Buffer> buffer) = 0;
   /// Handle completion of a write operation.
   virtual void HandleWrite(const boost::system::error_code& e,
                            shared_ptr<Object> resource) = 0;
-  scoped_ptr<boost::asio::ip::tcp::socket> socket_;
+  shared_ptr<boost::asio::ip::tcp::socket> socket_;
 };
 typedef shared_ptr<Connection> ConnectionPtr;
 /// Represents a single Connection from a client.
 template <typename LineFormat,
-          typename LineFormatHandler,
-          typename LineFormatParser,
+          typename Handler,
           typename Reply>
 class ConnectionImpl : virtual public Connection {
 public:
-  // Start the first asynchronous operation for the Connection.
-  void Start();
-
-  Connection* Clone() {
-    ConnectionImpl *connect = new ConnectionImpl;
-    // To get the handler table.
-    connect->lineformat_handler_ = lineformat_handler_;
-    return connect;
-  }
+  typedef typename LineFormat::Encoder Encoder;
+  typedef typename LineFormat::Parser Parser;
+  // ScheduleRead the first asynchronous operation for the Connection.
+  void ScheduleRead();
 
   void ScheduleWrite();
 
 protected:
   /// Handle completion of a read operation.
   virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred);
+      size_t bytes_transferred, shared_ptr<Buffer> buffer);
 
   /// Handle completion of a write operation.
   virtual void HandleWrite(const boost::system::error_code& e,
                            shared_ptr<Object> resource);
 
-  static const int kBufferSize = 8192;
   /// The handler used to process the incoming request.
-  LineFormatHandler lineformat_handler_;
-
-  /// Buffer for incoming data.
-  boost::array<char, kBufferSize> buffer_;
+  Handler handler_;
 
   /// The incoming request.
   LineFormat lineformat_;
 
   /// The parser for the incoming request.
-  LineFormatParser lineformat_parser_;
+  Parser parser_;
 
   /// The reply to be sent back to the client.
   Reply reply_;
@@ -78,23 +101,22 @@ protected:
   IOServicePtr io_service_;
 };
 
-template <typename LineFormat, typename LineFormatHandler,
-          typename LineFormatParser, typename Reply>
-void ConnectionImpl<
-  LineFormat, LineFormatHandler, LineFormatParser, Reply>::Start() {
-  VLOG(2) << "Connection start";
-  this->socket()->async_read_some(boost::asio::buffer(buffer_),
+template <typename LineFormat, typename Handler, typename Reply>
+void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleRead() {
+  VLOG(2) << "ScheduleRead" << " open: " << socket_->is_open();
+  shared_ptr<Buffer> buffer(new Buffer);
+  socket_->async_read_some(boost::asio::buffer(*buffer.get()),
       boost::bind(&Connection::HandleRead, shared_from_this(),
         boost::asio::placeholders::error,
-        boost::asio::placeholders::bytes_transferred));
+        boost::asio::placeholders::bytes_transferred, buffer));
 }
 
-template <typename LineFormat, typename LineFormatHandler,
-          typename LineFormatParser, typename Reply>
-void ConnectionImpl<
-LineFormat, LineFormatHandler, LineFormatParser, Reply>::ScheduleWrite() {
-  shared_ptr<typename LineFormat::Encoder> encoder = reply_.PopEncoder();
+template <typename LineFormat, typename Handler, typename Reply>
+void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleWrite() {
+  VLOG(2) << "Schedule Write";
+  shared_ptr<Encoder> encoder = reply_.PopEncoder();
   if (encoder.get() == NULL) {
+    LOG(WARNING) << "Encoder is null";
     return;
   }
   boost::asio::async_write(*socket_.get(), encoder->ToBuffers(),
@@ -102,32 +124,38 @@ LineFormat, LineFormatHandler, LineFormatParser, Reply>::ScheduleWrite() {
                                        boost::asio::placeholders::error, encoder));
 }
 
-template <typename LineFormat, typename LineFormatHandler,
-          typename LineFormatParser, typename Reply>
+template <typename LineFormat, typename Handler, typename Reply>
 void ConnectionImpl<
-  LineFormat, LineFormatHandler, LineFormatParser, Reply>::HandleRead(
+  LineFormat, Handler, Reply>::HandleRead(
       const boost::system::error_code& e,
-      size_t bytes_transferred) {
+      size_t bytes_transferred, shared_ptr<Buffer> buffer) {
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
-          << bytes_transferred;
-  if (!e && bytes_transferred > 0) {
+          << bytes_transferred << " content: "
+          << string(buffer->data(), bytes_transferred);
+  if (!e) {
     boost::tribool result;
-    boost::tie(result, boost::tuples::ignore) =
-      lineformat_parser_.Parse(
-        &lineformat_, buffer_.data(),
-        buffer_.data() + bytes_transferred);
+    const char *start = buffer->data();
+    const char *end = start + bytes_transferred;
+    const char *p = start;
+    while (p < end) {
+      boost::tie(result, p) =
+        parser_.Parse(
+            &lineformat_, p, end);
 
-    if (result) {
-      lineformat_handler_.HandleLineFormat(lineformat_, &reply_);
-      ScheduleWrite();
-    } else if (!result) {
-      ScheduleWrite();
-    } else {
-      socket_->async_read_some(boost::asio::buffer(buffer_),
-          boost::bind(&Connection::HandleRead, shared_from_this(),
-            boost::asio::placeholders::error,
-            boost::asio::placeholders::bytes_transferred));
+      if (result) {
+        VLOG(2) << "Handle lineformat: size: " << (p - start);
+        handler_.HandleLineFormat(lineformat_, this, &reply_);
+        ScheduleWrite();
+      } else if (!result) {
+        VLOG(2) << "Parse error";
+        ScheduleWrite();
+        break;
+      } else {
+        VLOG(2) << "Need to read more data";
+        break;
+      }
     }
+    ScheduleRead();
   }
 
   // If an error occurs then no new asynchronous operations are started. This
@@ -136,25 +164,12 @@ void ConnectionImpl<
   // handler returns. The ConnectionImpl class's destructor closes the socket.
 }
 
-template <typename LineFormat, typename LineFormatHandler,
-          typename LineFormatParser, typename Reply>
+template <typename LineFormat, typename Handler, typename Reply>
 void ConnectionImpl<
-  LineFormat, LineFormatHandler, LineFormatParser, Reply>::HandleWrite(
+  LineFormat, Handler, Reply>::HandleWrite(
       const boost::system::error_code& e, shared_ptr<Object> encoder) {
   if (!e) {
-    shared_ptr<typename LineFormat::Encoder> new_encoder = reply_.PopEncoder();
-    if (new_encoder.get() != NULL) {
-      boost::asio::async_write(*socket_.get(), new_encoder->ToBuffers(),
-                               boost::bind(&Connection::HandleWrite, shared_from_this(),
-                                           boost::asio::placeholders::error, encoder));
-      return;
-    }
-    if (!reply_.IsRunning()) {
-      // Initiate graceful ConnectionImpl closure.
-      boost::system::error_code ignored_ec;
-      socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both,
-                        ignored_ec);
-    }
+    ScheduleWrite();
   }
 
   // No new asynchronous operations are started. This means that all shared_ptr

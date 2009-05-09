@@ -1,107 +1,67 @@
 #ifndef CLIENT_CONNECTION_HPP
 #define CLIENT_CONNECTION_HPP
-template <typename LineFormat, typename LineFormatParser>
-class ClientConnection {
+#include "server/protobuf_connection.hpp"
+class ClientConnection : public ProtobufConnection {
  public:
-  typedef boost::function1<void, const LineFormat *> Listener;
-  ClientConnection(IOServicePtr io_service)
-    : io_service_(io_service),
-      socket_(*io_service.get()) {
-  }
-
-  void set_listener(const Listener &listener) {
-    listener_ = listener;
+  ClientConnection(IOServicePtr io_service,
+                   const string &server, const string &port)
+    : io_service_(io_service), server_(server), port_(port) {
   }
 
   bool IsConnected() const {
-    return socket_.is_open();
+    return this->socket().get() && this->socket()->is_open();
   }
 
-  bool Connect(const string &server, const string &port) {
-    boost::asio::ip::tcp::resolver::query query(server, port);
+  bool Connect() {
+    boost::asio::ip::tcp::resolver::query query(server_, port_);
     boost::asio::ip::tcp::resolver resolver(*io_service_.get());
     boost::asio::ip::tcp::resolver::iterator endpoint_iterator =
       resolver.resolve(query);
     boost::asio::ip::tcp::resolver::iterator end;
     // Try each endpoint until we successfully establish a connection.
     boost::system::error_code error = boost::asio::error::host_not_found;
+    shared_ptr<boost::asio::ip::tcp::socket> socket(
+        new boost::asio::ip::tcp::socket(*io_service_.get()));
     while (error && endpoint_iterator != end) {
-      socket_.close();
-      socket_.connect(*endpoint_iterator++, error);
+      socket->close();
+      socket->connect(*endpoint_iterator++, error);
     }
     if (error) {
       LOG(WARNING) << ":fail to connect, error:"  << error.message();
       return false;
     }
-    socket_.async_read_some(
-        boost::asio::buffer(buffer_),
-        boost::bind(&ClientConnection::HandleRead, this,
-                    boost::asio::placeholders::error,
-                    boost::asio::placeholders::bytes_transferred));
+    this->set_socket(socket);
     return true;
   }
-  void Send(const ConstBufferVector &buffers) {
-    return Send(buffers, shared_ptr<Object>(static_cast<Object*>(NULL)));
-  }
+ private:
+  IOServicePtr io_service_;
+  static const int kBufferSize = 8192;
+  string server_, port_;
+};
 
-  void Send(const ConstBufferVector &buffers, shared_ptr<Object> resource) {
-    boost::asio::async_write(
-        socket_, buffers,
-        boost::bind(&ClientConnection::HandleWriteWithReleaseResource, this,
-                    boost::asio::placeholders::error, resource));
+class RpcController : public google::protobuf::RpcController {
+ public:
+  void Reset() {
+    failed_.clear();
+  }
+  void SetFailed(const string &failed) {
+    failed_ = failed;
+  }
+  bool Failed() const {
+    return !failed_.empty();
+  }
+  string ErrorText() const {
+    return failed_;
+  }
+  void StartCancel() {
+  }
+  bool IsCanceled() const {
+    return false;
+  }
+  void NotifyOnCancel(google::protobuf::Closure *callback) {
   }
  private:
-  void HandleWriteWithReleaseResource(const boost::system::error_code &err,
-                   shared_ptr<Object> resource) {
-    return HandleWrite(err);
-  }
-  void HandleWrite(const boost::system::error_code &err) {
-    if (err) {
-      LOG(WARNING) << "Write fail";
-      // failed.
-      listener_(NULL);
-    }
-  }
-  void HandleRead(const boost::system::error_code& e,
-             size_t bytes_transferred) {
-    VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
-      << bytes_transferred;
-    if (!e) {
-      boost::tribool result;
-      boost::tie(result, boost::tuples::ignore) =
-        lineformat_parser_.Parse(
-            &lineformat_, buffer_.data(),
-            buffer_.data() + bytes_transferred);
-
-      if (result) {
-        listener_(&lineformat_);
-      } else if (!result) {
-        LOG(WARNING) << "Error line format";
-        listener_(NULL);
-        return;
-      } else {
-        LOG(INFO) << "Continue to read";
-        socket_.async_read_some(
-            boost::asio::buffer(buffer_),
-            boost::bind(&ClientConnection::HandleRead, this,
-                        boost::asio::placeholders::error,
-                        boost::asio::placeholders::bytes_transferred));
-      }
-    } else {
-      LOG(WARNING) << "read error: " << e.message();
-      listener_(NULL);
-      return;
-    }
-  }
- protected:
-  static const int kBufferSize = 8192;
-  IOServicePtr io_service_;
-  boost::asio::ip::tcp::socket socket_;
-  /// Buffer for incoming data.
-  boost::array<char, kBufferSize> buffer_;
-  LineFormatParser lineformat_parser_;
-  LineFormat lineformat_;
-  Listener listener_;
+  string failed_;
 };
 #endif  // CLIENT_CONNECTION_HPP
 

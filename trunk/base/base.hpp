@@ -18,6 +18,7 @@ typedef pcrecpp::StringPiece StringPiece;
 #include <boost/logic/tribool.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/tuple/tuple.hpp>
+#include <boost/function.hpp>
 using boost::scoped_ptr;
 using boost::scoped_array;
 using boost::shared_ptr;
@@ -45,4 +46,5 @@ using namespace __gnu_cxx;
 #include "buffer.hpp"
 #include "hash.hpp"
 #include "object.hpp"
+#include "closure.hpp"
 #endif // BASE_H_
