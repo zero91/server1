@@ -1,0 +1,13 @@
+package ProtobufLineFormat;
+message MetaData {
+  enum Type {
+    REQUEST = 1;
+    RESPONSE = 2;
+  };
+  required Type type = 1;
+  required int64 identify = 2;
+  // the request should bring the response identify.
+  optional int64 response_identify = 3;
+
+  required string content = 4;
+};

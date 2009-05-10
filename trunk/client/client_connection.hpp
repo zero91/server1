@@ -8,10 +8,6 @@ class ClientConnection : public ProtobufConnection {
     : io_service_(io_service), server_(server), port_(port) {
   }
 
-  bool IsConnected() const {
-    return this->socket().get() && this->socket()->is_open();
-  }
-
   bool Connect() {
     boost::asio::ip::tcp::resolver::query query(server_, port_);
     boost::asio::ip::tcp::resolver resolver(*io_service_.get());

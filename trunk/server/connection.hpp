@@ -3,11 +3,13 @@
 #include "base/base.hpp"
 #include "glog/logging.h"
 #include "server/io_service_pool.hpp"
+#include "server/meta.pb.h"
 #include "protobuf/service.h"
+#include "boost/thread.hpp"
 class FullDualChannel : virtual public google::protobuf::RpcController,
   virtual public google::protobuf::RpcChannel {
  public:
-  virtual void RegisterService(google::protobuf::Service *service) = 0;
+  virtual bool RegisterService(google::protobuf::Service *service) = 0;
   virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
                           google::protobuf::RpcController *controller,
                           const google::protobuf::Message *request,
@@ -53,9 +55,12 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Ful
   virtual void Close() {
     socket_->close();
   }
+  virtual bool IsConnected() {
+    return socket_.get() && socket_->is_open();
+  }
  protected:
   virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred) = 0;
+      size_t bytes_transferred, Object *resource) = 0;
   /// Handle completion of a write operation.
   virtual void HandleWrite(const boost::system::error_code& e,
                            shared_ptr<Object> resource) = 0;
@@ -63,20 +68,37 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Ful
 };
 
 typedef shared_ptr<Connection> ConnectionPtr;
-/// Represents a single Connection from a client.
-template <typename LineFormat,
-          typename Handler,
-          typename Reply>
+// Represents a single Connection from a client.
+// The Handler::Handle method should be multi thread safe.
+template <typename Decoder>
 class ConnectionImpl : virtual public Connection {
+ private:
+  class SharedConstBuffer : public boost::asio::const_buffer {
+   public:
+    SharedConstBuffer(const string *data)
+      : const_buffer(data->c_str(), data->size()), data_(data) {
+    }
+   private:
+    shared_ptr<const string> data_;
+  };
 public:
-  typedef typename LineFormat::Encoder Encoder;
-  typedef typename LineFormat::Parser Parser;
+  ConnectionImpl() : incoming_index_(0) {
+  }
+  Connection *Clone()  = 0;
   // ScheduleRead the first asynchronous operation for the Connection.
   void ScheduleRead();
 
   void ScheduleWrite();
 
+  template <typename T>
+  // The push will take the ownership of the data
+  void PushData(const T &data) {
+    boost::mutex::scoped_lock locker(incoming_mutex_);
+    return InternalPushData(data);
+  }
+
 protected:
+  template <class T> void InternalPushData(const T &data);
   class Status {
    public:
     Status() : status_(IDLE) {
@@ -116,35 +138,37 @@ protected:
 
   /// Handle completion of a read operation.
   virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred);
+      size_t bytes_transferred, Object *resource);
+  void InternalScheduleRead(Object *resource);
 
   /// Handle completion of a write operation.
   virtual void HandleWrite(const boost::system::error_code& e,
                            shared_ptr<Object> resource);
 
+  virtual void Handle(shared_ptr<const Decoder> decoder) = 0;
+
   static const int kBufferSize = 8192;
   typedef boost::array<char, kBufferSize> Buffer;
 
   Buffer buffer_;
-  /// The handler used to process the incoming request.
-  Handler handler_;
-
-  /// The incoming request.
-  LineFormat lineformat_;
-
-  /// The parser for the incoming request.
-  Parser parser_;
-
-  /// The reply to be sent back to the client.
-  Reply reply_;
 
   IOServicePtr io_service_;
 
   Status status_;
+
+  int incoming_index_;
+  boost::mutex incoming_mutex_;
+  shared_ptr<vector<SharedConstBuffer> > duplex_[2];
 };
 
-template <typename LineFormat, typename Handler, typename Reply>
-void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleRead() {
+template <typename Decoder>
+void ConnectionImpl<Decoder>::ScheduleRead() {
+  return InternalScheduleRead(static_cast<Object*>(0));
+}
+
+template <typename Decoder>
+void ConnectionImpl<Decoder>::InternalScheduleRead(
+    Object *resource) {
   if (status_.reading()) {
     VLOG(2) << "Alreading in reading status";
     return;
@@ -154,34 +178,44 @@ void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleRead() {
   socket_->async_read_some(boost::asio::buffer(buffer_),
       boost::bind(&Connection::HandleRead, shared_from_this(),
         boost::asio::placeholders::error,
-        boost::asio::placeholders::bytes_transferred));
+        boost::asio::placeholders::bytes_transferred, resource));
 }
 
-template <typename LineFormat, typename Handler, typename Reply>
-void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleWrite() {
+template <typename Decoder>
+void ConnectionImpl<Decoder>::ScheduleWrite() {
   if (status_.writting()) {
     VLOG(2) << "Alreading in writting status";
     return;
   }
   status_.set_writting();
 
+  {
+    boost::mutex::scoped_lock locker(incoming_mutex_);
+    // Switch the working vector.
+    incoming_index_ = 1 - incoming_index_;
+  }
+
+  const int outcoming_index = 1 - incoming_index_;
   VLOG(2) << "Schedule Write socket open:" << socket_->is_open();
-  shared_ptr<Encoder> encoder = reply_.PopEncoder();
-  if (encoder.get() == NULL) {
+  shared_ptr<vector<SharedConstBuffer> > outcoming(duplex_[outcoming_index]);
+  duplex_[outcoming_index].reset();
+  if (outcoming.get() == NULL || outcoming->empty()) {
     status_.clear_writting();
-    LOG(WARNING) << "Encoder is null";
+    LOG(WARNING) << "No outcoming";
     return;
   }
-  boost::asio::async_write(*socket_.get(), encoder->ToBuffers(),
-                           boost::bind(&Connection::HandleWrite, shared_from_this(),
-                                       boost::asio::placeholders::error, encoder));
+  boost::asio::async_write(
+      *socket_.get(), *outcoming.get(),
+      boost::bind(&Connection::HandleWrite, shared_from_this(),
+                  boost::asio::placeholders::error,
+                  ObjectT<vector<SharedConstBuffer> >::Create(outcoming)));
 }
 
-template <typename LineFormat, typename Handler, typename Reply>
-void ConnectionImpl<
-  LineFormat, Handler, Reply>::HandleRead(
+template <typename Decoder>
+void ConnectionImpl<Decoder>::HandleRead(
       const boost::system::error_code& e,
-      size_t bytes_transferred) {
+      size_t bytes_transferred,
+      Object *resource) {
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
           << bytes_transferred << " content: "
           << string(buffer_.data(), bytes_transferred);
@@ -191,27 +225,40 @@ void ConnectionImpl<
     const char *start = buffer_.data();
     const char *end = start + bytes_transferred;
     const char *p = start;
+    Decoder *decoder;
+    if (resource == NULL) {
+      decoder = new Decoder;
+      resource = decoder;
+    } else {
+      decoder = dynamic_cast<Decoder*>(resource);
+    }
     while (p < end) {
       boost::tie(result, p) =
-        parser_.Parse(
-            &lineformat_, p, end);
-
+        decoder->Decode(p, end);
       if (result) {
         VLOG(2) << "Handle lineformat: size: " << (p - start);
-        handler_.HandleLineFormat(lineformat_, this, &reply_);
+        shared_ptr<const Decoder> shared_decoder(decoder);
+        Handle(shared_decoder);
         ScheduleWrite();
+        decoder = new Decoder;
+        resource = decoder;
       } else if (!result) {
         VLOG(2) << "Parse error";
+        delete resource;
         ScheduleWrite();
         break;
       } else {
         VLOG(2) << "Need to read more data";
-        break;
+        InternalScheduleRead(resource);
+        return;
       }
     }
     status_.clear_reading();
     ScheduleRead();
   } else {
+    if (resource != NULL) {
+      delete resource;
+    }
     status_.clear_reading();
   }
 
@@ -221,10 +268,9 @@ void ConnectionImpl<
   // handler returns. The ConnectionImpl class's destructor closes the socket.
 }
 
-template <typename LineFormat, typename Handler, typename Reply>
-void ConnectionImpl<
-  LineFormat, Handler, Reply>::HandleWrite(
-      const boost::system::error_code& e, shared_ptr<Object> encoder) {
+template <typename Decoder>
+void ConnectionImpl<Decoder>::HandleWrite(
+      const boost::system::error_code& e, shared_ptr<Object> o) {
     CHECK(status_.writting());
     if (!e) {
       status_.clear_writting();

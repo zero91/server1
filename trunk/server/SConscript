@@ -1,7 +1,8 @@
 Import('env')
 server_env  = env
 server_env.Append(LIBPATH=['$objroot/server'])
-server_env.Prepend(LIBS=['server'])
+server_env.Prepend(LIBS=['server', 'meta_pb'])
+ProtoLib(server_env, 'meta')
 
 server_env.StaticLibrary(
   target = 'server',

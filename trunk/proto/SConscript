@@ -1,12 +1,2 @@
 Import('env')
 ProtoLib(env, 'hello')
-#print env['objroot']
-#hello_proto_info = env.ProtocolBuffer(
-#  'hello.proto')
-#
-#print hello_proto_info.abspath
-#
-#StaticLibrary(
-#  target = 'hello_proto',
-#  source = [
-#  hello_proto_info[0].abspath])

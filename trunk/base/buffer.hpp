@@ -14,12 +14,13 @@ class Buffer {
   void clear() {
     size_ = 0;
     capacity_ = 0;
+    t_.reset();
   }
 
   void reserve(int capacity) {
     size_ = 0;
+    t_.reset(new T[capacity + 1]);
     capacity_ = capacity;
-    t_.reset(new T[capacity_ + 1]);
   }
 
   T *data() const {
