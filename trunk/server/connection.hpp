@@ -54,15 +54,14 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Ful
     socket_->close();
   }
  protected:
-  static const int kBufferSize = 8192;
-  typedef boost::array<char, kBufferSize> Buffer;
   virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred, shared_ptr<Buffer> buffer) = 0;
+      size_t bytes_transferred) = 0;
   /// Handle completion of a write operation.
   virtual void HandleWrite(const boost::system::error_code& e,
                            shared_ptr<Object> resource) = 0;
   shared_ptr<boost::asio::ip::tcp::socket> socket_;
 };
+
 typedef shared_ptr<Connection> ConnectionPtr;
 /// Represents a single Connection from a client.
 template <typename LineFormat,
@@ -78,14 +77,55 @@ public:
   void ScheduleWrite();
 
 protected:
+  class Status {
+   public:
+    Status() : status_(IDLE) {
+    }
+    bool reading() const {
+      return status_ & READING;
+    }
+
+    bool writting() const {
+      return status_ & WRITTING;
+    }
+
+    void set_reading() {
+      status_ |= READING;
+    }
+
+    void set_writting() {
+      status_ |= WRITTING;
+    }
+
+    void clear_reading() {
+      status_ &= ~READING;
+    }
+
+    void clear_writting() {
+      status_ &= ~WRITTING;
+    }
+
+   private:
+    enum InternalStatus {
+      IDLE = 0x01,
+      READING = 0x01 << 1,
+      WRITTING = 0x01 << 2
+    };
+    int status_;
+  };
+
   /// Handle completion of a read operation.
   virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred, shared_ptr<Buffer> buffer);
+      size_t bytes_transferred);
 
   /// Handle completion of a write operation.
   virtual void HandleWrite(const boost::system::error_code& e,
                            shared_ptr<Object> resource);
 
+  static const int kBufferSize = 8192;
+  typedef boost::array<char, kBufferSize> Buffer;
+
+  Buffer buffer_;
   /// The handler used to process the incoming request.
   Handler handler_;
 
@@ -99,23 +139,36 @@ protected:
   Reply reply_;
 
   IOServicePtr io_service_;
+
+  Status status_;
 };
 
 template <typename LineFormat, typename Handler, typename Reply>
 void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleRead() {
-  VLOG(2) << "ScheduleRead" << " open: " << socket_->is_open();
-  shared_ptr<Buffer> buffer(new Buffer);
-  socket_->async_read_some(boost::asio::buffer(*buffer.get()),
+  if (status_.reading()) {
+    VLOG(2) << "Alreading in reading status";
+    return;
+  }
+  status_.set_reading();
+  VLOG(2) << "ScheduleRead" << " socket open: " << socket_->is_open();
+  socket_->async_read_some(boost::asio::buffer(buffer_),
       boost::bind(&Connection::HandleRead, shared_from_this(),
         boost::asio::placeholders::error,
-        boost::asio::placeholders::bytes_transferred, buffer));
+        boost::asio::placeholders::bytes_transferred));
 }
 
 template <typename LineFormat, typename Handler, typename Reply>
 void ConnectionImpl<LineFormat, Handler, Reply>::ScheduleWrite() {
-  VLOG(2) << "Schedule Write";
+  if (status_.writting()) {
+    VLOG(2) << "Alreading in writting status";
+    return;
+  }
+  status_.set_writting();
+
+  VLOG(2) << "Schedule Write socket open:" << socket_->is_open();
   shared_ptr<Encoder> encoder = reply_.PopEncoder();
   if (encoder.get() == NULL) {
+    status_.clear_writting();
     LOG(WARNING) << "Encoder is null";
     return;
   }
@@ -128,13 +181,14 @@ template <typename LineFormat, typename Handler, typename Reply>
 void ConnectionImpl<
   LineFormat, Handler, Reply>::HandleRead(
       const boost::system::error_code& e,
-      size_t bytes_transferred, shared_ptr<Buffer> buffer) {
+      size_t bytes_transferred) {
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
           << bytes_transferred << " content: "
-          << string(buffer->data(), bytes_transferred);
+          << string(buffer_.data(), bytes_transferred);
+  CHECK(status_.reading());
   if (!e) {
     boost::tribool result;
-    const char *start = buffer->data();
+    const char *start = buffer_.data();
     const char *end = start + bytes_transferred;
     const char *p = start;
     while (p < end) {
@@ -155,7 +209,10 @@ void ConnectionImpl<
         break;
       }
     }
+    status_.clear_reading();
     ScheduleRead();
+  } else {
+    status_.clear_reading();
   }
 
   // If an error occurs then no new asynchronous operations are started. This
@@ -168,9 +225,13 @@ template <typename LineFormat, typename Handler, typename Reply>
 void ConnectionImpl<
   LineFormat, Handler, Reply>::HandleWrite(
       const boost::system::error_code& e, shared_ptr<Object> encoder) {
-  if (!e) {
-    ScheduleWrite();
-  }
+    CHECK(status_.writting());
+    if (!e) {
+      status_.clear_writting();
+      ScheduleWrite();
+    } else {
+      status_.clear_writting();
+    }
 
   // No new asynchronous operations are started. This means that all shared_ptr
   // references to the ConnectionImpl object will disappear and the object will be
