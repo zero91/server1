@@ -1,6 +1,8 @@
 #ifndef NET2_IO_SERVICE_POOL_HPP_
 #define NET2_IO_SERVICE_POOL_HPP_
 #include "base/base.hpp"
+#include <boost/thread.hpp>
+#include "thread/threadpool.hpp"
 typedef shared_ptr<boost::asio::io_service> IOServicePtr;
 /// A pool of io_service objects.
 class IOServicePool : private boost::noncopyable {
@@ -9,7 +11,7 @@ public:
   explicit IOServicePool(size_t pool_size);
 
   /// Run all io_service objects in the pool.
-  void Run();
+  void Start();
 
   /// Stop all io_service objects in the pool.
   void Stop();
@@ -26,7 +28,9 @@ private:
   /// The work that keeps the io_services running.
   vector<work_ptr> work_;
 
-  /// The next io_service to use for a connection.
-  size_t next_io_service_;
+  int next_io_service_;
+
+  ThreadPool threadpool_;
+  boost::mutex mutex_;
 };
 #endif // NET2_IO_SERVICE_POOL_HPP_

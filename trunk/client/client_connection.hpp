@@ -11,8 +11,8 @@ class ClientConnection : public ProtobufConnection {
   bool Connect() {
     boost::asio::ip::tcp::resolver::query query(server_, port_);
     boost::asio::ip::tcp::resolver resolver(*io_service_.get());
-    boost::asio::ip::tcp::resolver::iterator endpoint_iterator =
-      resolver.resolve(query);
+    boost::asio::ip::tcp::resolver::iterator endpoint_iterator(
+        resolver.resolve(query));
     boost::asio::ip::tcp::resolver::iterator end;
     // Try each endpoint until we successfully establish a connection.
     boost::system::error_code error = boost::asio::error::host_not_found;

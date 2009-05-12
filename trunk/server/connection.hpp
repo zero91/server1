@@ -1,6 +1,7 @@
 #ifndef NET2_CONNECTION_HPP_
 #define NET2_CONNECTION_HPP_
 #include "base/base.hpp"
+#include "base/executor.hpp"
 #include "glog/logging.h"
 #include "server/io_service_pool.hpp"
 #include "server/meta.pb.h"
@@ -38,19 +39,30 @@ class FullDualChannel : virtual public google::protobuf::RpcController,
   string failed_;
 };
 
-class Connection : public boost::enable_shared_from_this<Connection>, public FullDualChannel {
+class Connection;
+typedef shared_ptr<Connection> ConnectionPtr;
+class Connection : public boost::enable_shared_from_this<Connection>, public FullDualChannel, public Executor {
  public:
   void set_socket(shared_ptr<boost::asio::ip::tcp::socket> socket) {
     socket_ = socket;
   }
 
+  void set_executor(shared_ptr<Executor> executor) {
+    executor_ = executor;
+  }
+
+  shared_ptr<Executor> executor() const {
+    return executor_;
+  }
+
   shared_ptr<boost::asio::ip::tcp::socket> socket() const {
     return socket_;
   }
+
   virtual ~Connection() {}
 
   virtual void ScheduleRead() = 0;
-  virtual Connection *Clone() = 0;
+  virtual ConnectionPtr Clone() = 0;
   virtual void ScheduleWrite() = 0;
   virtual void Close() {
     socket_->close();
@@ -59,15 +71,23 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Ful
     return socket_.get() && socket_->is_open();
   }
  protected:
-  virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred, Object *resource) = 0;
-  /// Handle completion of a write operation.
-  virtual void HandleWrite(const boost::system::error_code& e,
-                           shared_ptr<Object> resource) = 0;
+  // Handle completion of a read operation.
+  void HandleRead(const boost::system::error_code& e,
+                  size_t bytes_transferred,
+                  const boost::function2<void, const boost::system::error_code& ,
+                  size_t> &call) {
+    return call(e, bytes_transferred);
+  }
+
+  // Handle completion of a write operation.
+  void HandleWrite(const boost::system::error_code& e,
+                   const boost::function1<void, const boost::system::error_code &> &call) {
+    return call(e);
+  }
   shared_ptr<boost::asio::ip::tcp::socket> socket_;
+  shared_ptr<Executor> executor_;
 };
 
-typedef shared_ptr<Connection> ConnectionPtr;
 // Represents a single Connection from a client.
 // The Handler::Handle method should be multi thread safe.
 template <typename Decoder>
@@ -84,7 +104,7 @@ class ConnectionImpl : virtual public Connection {
 public:
   ConnectionImpl() : incoming_index_(0) {
   }
-  Connection *Clone()  = 0;
+  ConnectionPtr Clone()  = 0;
   // ScheduleRead the first asynchronous operation for the Connection.
   void ScheduleRead();
 
@@ -136,14 +156,16 @@ protected:
     int status_;
   };
 
-  /// Handle completion of a read operation.
-  virtual void HandleRead(const boost::system::error_code& e,
-      size_t bytes_transferred, Object *resource);
-  void InternalScheduleRead(Object *resource);
+  void InternalHandleRead(
+      const boost::system::error_code& e,
+      size_t bytes_transferred,
+      shared_ptr<Decoder> decoder);
 
-  /// Handle completion of a write operation.
-  virtual void HandleWrite(const boost::system::error_code& e,
-                           shared_ptr<Object> resource);
+  void InternalHandleWrite(
+      const boost::system::error_code& e, shared_ptr<vector<SharedConstBuffer> > o);
+
+  void InternalScheduleRead(
+      shared_ptr<Decoder> decoder);
 
   virtual void Handle(shared_ptr<const Decoder> decoder) = 0;
 
@@ -163,22 +185,26 @@ protected:
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleRead() {
-  return InternalScheduleRead(static_cast<Object*>(0));
+  shared_ptr<Decoder> decoder(new Decoder);
+  return InternalScheduleRead(decoder);
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleRead(
-    Object *resource) {
+    shared_ptr<Decoder> decoder) {
   if (status_.reading()) {
     VLOG(2) << "Alreading in reading status";
     return;
   }
   status_.set_reading();
   VLOG(2) << "ScheduleRead" << " socket open: " << socket_->is_open();
+  const boost::function2<void, const boost::system::error_code& , size_t> call(
+      boost::bind(&ConnectionImpl<Decoder>::InternalHandleRead, this, _1, _2, decoder));
   socket_->async_read_some(boost::asio::buffer(buffer_),
-      boost::bind(&Connection::HandleRead, shared_from_this(),
+      boost::bind(&Connection::HandleRead, Connection::shared_from_this(),
         boost::asio::placeholders::error,
-        boost::asio::placeholders::bytes_transferred, resource));
+        boost::asio::placeholders::bytes_transferred,
+        call));
 }
 
 template <typename Decoder>
@@ -204,18 +230,21 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
     LOG(WARNING) << "No outcoming";
     return;
   }
+  const boost::function1<void, const boost::system::error_code &> call(
+      boost::bind(&ConnectionImpl<Decoder>::InternalHandleWrite, this, _1, outcoming));
   boost::asio::async_write(
       *socket_.get(), *outcoming.get(),
-      boost::bind(&Connection::HandleWrite, shared_from_this(),
-                  boost::asio::placeholders::error,
-                  ObjectT<vector<SharedConstBuffer> >::Create(outcoming)));
+      boost::bind(
+          &Connection::HandleWrite, Connection::shared_from_this(),
+          boost::asio::placeholders::error,
+          call));
 }
 
 template <typename Decoder>
-void ConnectionImpl<Decoder>::HandleRead(
+void ConnectionImpl<Decoder>::InternalHandleRead(
       const boost::system::error_code& e,
       size_t bytes_transferred,
-      Object *resource) {
+      shared_ptr<Decoder> decoder) {
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
           << bytes_transferred << " content: "
           << string(buffer_.data(), bytes_transferred);
@@ -225,63 +254,48 @@ void ConnectionImpl<Decoder>::HandleRead(
     const char *start = buffer_.data();
     const char *end = start + bytes_transferred;
     const char *p = start;
-    Decoder *decoder;
-    if (resource == NULL) {
-      decoder = new Decoder;
-      resource = decoder;
-    } else {
-      decoder = dynamic_cast<Decoder*>(resource);
-    }
     while (p < end) {
       boost::tie(result, p) =
         decoder->Decode(p, end);
       if (result) {
         VLOG(2) << "Handle lineformat: size: " << (p - start);
         shared_ptr<const Decoder> shared_decoder(decoder);
-        Handle(shared_decoder);
-        ScheduleWrite();
-        decoder = new Decoder;
-        resource = decoder;
+        shared_ptr<Executor> this_executor(this->executor());
+        if (this_executor.get() == NULL) {
+          Handle(shared_decoder);
+        } else {
+          // This is executed in another thread.
+          boost::function0<void> handler = boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder);
+          this_executor->Run(boost::bind(
+              &Connection::Run, shared_from_this(), handler));
+        }
+        decoder.reset(new Decoder);
       } else if (!result) {
         VLOG(2) << "Parse error";
-        delete resource;
         ScheduleWrite();
         break;
       } else {
         VLOG(2) << "Need to read more data";
-        InternalScheduleRead(resource);
+        InternalScheduleRead(decoder);
         return;
       }
     }
     status_.clear_reading();
     ScheduleRead();
   } else {
-    if (resource != NULL) {
-      delete resource;
-    }
     status_.clear_reading();
   }
-
-  // If an error occurs then no new asynchronous operations are started. This
-  // means that all shared_ptr references to the ConnectionImpl object will
-  // disappear and the object will be destroyed automatically after this
-  // handler returns. The ConnectionImpl class's destructor closes the socket.
 }
 
 template <typename Decoder>
-void ConnectionImpl<Decoder>::HandleWrite(
-      const boost::system::error_code& e, shared_ptr<Object> o) {
-    CHECK(status_.writting());
-    if (!e) {
-      status_.clear_writting();
-      ScheduleWrite();
-    } else {
-      status_.clear_writting();
-    }
-
-  // No new asynchronous operations are started. This means that all shared_ptr
-  // references to the ConnectionImpl object will disappear and the object will be
-  // destroyed automatically after this handler returns. The ConnectionImpl class's
-  // destructor closes the socket.
+void ConnectionImpl<Decoder>::InternalHandleWrite(
+    const boost::system::error_code& e, shared_ptr<vector<SharedConstBuffer> > o) {
+  CHECK(status_.writting());
+  if (!e) {
+    status_.clear_writting();
+    ScheduleWrite();
+  } else {
+    status_.clear_writting();
+  }
 }
 #endif // NET2_CONNECTION_HPP_

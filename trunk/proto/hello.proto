@@ -4,31 +4,26 @@ message LexiconCast {
   required int32 v2 = 2;
 }
 
-message IncRequest {
-  required int32 v = 1;
-  required int32 step = 2;
-}
-
-message IncResponse {
-  required int32 v = 1;
-}
-
 message EchoRequest {
   required string question = 1;
+  optional string client_threadid = 2;
 }
 
 message EchoResponse {
   required int32 echoed = 1;
   required string text = 2;
+  required bool close = 3 [default = false];
 }
 
 message EchoRequest2 {
   required string question = 1;
+  optional string client_threadid = 2;
 }
 
 message EchoResponse2 {
   required int32 echoed = 1;
   required string text = 2;
+  required bool close = 3 [default = false];
 }
 
 service EchoService {

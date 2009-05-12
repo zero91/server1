@@ -21,6 +21,7 @@ class EchoServiceImpl : public Hello::EchoService {
     LOG(INFO) << "Echo ServiceImpl called";
     response->set_echoed(true);
     response->set_text(request->question());
+    response->set_close(true);
     done->Run();
   }
 };
@@ -28,22 +29,33 @@ class EchoServiceImpl : public Hello::EchoService {
 
 class EchoTest : public testing::Test {
  public:
-  EchoTest()
-    : server_connection_(new ProtobufConnection),
-      client_io_service_(new boost::asio::io_service),
-      server_(FLAGS_server, FLAGS_port, FLAGS_num_threads,
-              server_connection_),
-      client_connection_(new ClientConnection(
-          client_io_service_,
-          FLAGS_server, FLAGS_port)),
-      stub_(client_connection_.get()),
-      server_thread_(boost::bind(&Server::Run, &server_)) {
+  EchoTest() {
+  }
+
+  void SetUp() {
+    server_connection_.reset(new ProtobufConnection);
+    client_io_service_.reset(new boost::asio::io_service);
+    server_.reset(new Server(FLAGS_num_threads, 1));
+    client_connection_.reset(new ClientConnection(
+        client_io_service_,
+        FLAGS_server, FLAGS_port));
+    stub_.reset(new Hello::EchoService::Stub(client_connection_.get()));
+    server_->Listen(FLAGS_server, FLAGS_port, server_connection_);
     VLOG(2) << "Register service";
     server_connection_->RegisterService(&echo_service_);
     CHECK(!client_connection_->IsConnected());
     CHECK(client_connection_->Connect());
     done_.reset(google::protobuf::NewPermanentCallback(
       this, &EchoTest::CallDone));
+  }
+
+  void TearDown() {
+    server_connection_.reset();
+    client_io_service_.reset();
+    server_.reset();
+    client_connection_.reset();
+    stub_.reset();
+    done_.reset();
   }
 
   void CallDone() {
@@ -54,11 +66,10 @@ class EchoTest : public testing::Test {
   shared_ptr<ProtobufConnection> server_connection_;
   shared_ptr<boost::asio::io_service> client_io_service_;
   shared_ptr<ClientConnection> client_connection_;
-  Server server_;
+  shared_ptr<Server> server_;
   EchoServiceImpl echo_service_;
-  Hello::EchoService::Stub stub_;
-  scoped_ptr<google::protobuf::Closure> done_;
-  boost::thread server_thread_;
+  shared_ptr<Hello::EchoService::Stub> stub_;
+  shared_ptr<google::protobuf::Closure> done_;
 };
 
 TEST_F(EchoTest, Test1) {
@@ -66,7 +77,7 @@ TEST_F(EchoTest, Test1) {
   Hello::EchoResponse response;
   request.set_question("hello");
   RpcController controller;
-  stub_.Echo(&controller,
+  stub_->Echo(&controller,
               &request,
               &response,
               done_.get());

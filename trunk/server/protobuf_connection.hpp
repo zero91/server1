@@ -63,9 +63,9 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder> {
       handler_table_(new HandlerTable) {
   }
 
-  Connection *Clone() {
-    ProtobufConnection *connection = new ProtobufConnection;
-    connection->handler_table_ = handler_table_;
+  ConnectionPtr Clone() {
+    ConnectionPtr connection(new ProtobufConnection(
+        this->handler_table_));
     return connection;
   }
   // Non thread safe.
@@ -77,6 +77,10 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder> {
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done);
  private:
+  ProtobufConnection(shared_ptr<HandlerTable> handler_table) : ConnectionImpl<ProtobufDecoder>(),
+      handler_table_(handler_table) {
+  }
+
   virtual void Handle(shared_ptr<const ProtobufDecoder> decoder);
   void CallMethodCallback(
       shared_ptr<const ProtobufDecoder> decoder,

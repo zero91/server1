@@ -8,38 +8,31 @@
 #include <boost/shared_ptr.hpp>
 #include "server/connection.hpp"
 #include "server/io_service_pool.hpp"
+#include "thread/threadpool.hpp"
 // The top-level class of the Server.
 class Server
-  : private boost::noncopyable {
+  : private boost::noncopyable, public boost::enable_shared_from_this<Server> {
 public:
   /// Construct the Server to listen on the specified TCP address and port, and
   /// serve up files from the given directory.
-  explicit Server(
-      const string& address,
-      const string& port,
-      size_t io_service_pool_size,
-      ConnectionPtr connection);
+  explicit Server(int io_service_number,
+                  int worker_threads);
 
-  /// Run the Server's io_service loop.
-  void Run();
+  void Listen(const string &address, const string &port,
+              ConnectionPtr connection_template);
 
   /// Stop the Server.
   void Stop();
-
 private:
-  /// Handle completion of an asynchronous accept operation.
-  void HandleAccept(const boost::system::error_code& e);
+  // Handle completion of an asynchronous accept operation.
+  void HandleAccept(
+      const boost::system::error_code& e,
+      shared_ptr<boost::asio::ip::tcp::acceptor> acceptor,
+      shared_ptr<boost::asio::ip::tcp::socket> socket,
+      ConnectionPtr connection_template);
 
-  /// The pool of io_service objects used to perform asynchronous operations.
+  // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
-
-  /// Acceptor used to listen for incoming connections.
-  boost::asio::ip::tcp::acceptor acceptor_;
-
-  /// The next connection to be accepted.
-  ConnectionPtr new_connection_;
-  // The original connection with the handler table.
-  ConnectionPtr connection_;
-  shared_ptr<boost::asio::ip::tcp::socket> socket_;
+  shared_ptr<ThreadPool> threadpool_;
 };
 #endif // NET2_SERVER_HPP

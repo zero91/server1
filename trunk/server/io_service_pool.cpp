@@ -1,11 +1,9 @@
 #include "server/io_service_pool.hpp"
-#include <boost/thread.hpp>
 #include <boost/bind.hpp>
 #include <glog/logging.h>
 IOServicePool::IOServicePool(size_t pool_size)
-  : next_io_service_(0) {
-  if (pool_size == 0)
-    throw runtime_error("IOServicePool size is 0");
+  : next_io_service_(0), threadpool_(pool_size) {
+  CHECK_GT(pool_size, 0);
 
   // Give all the io_services work to do so that their run() functions will not
   // exit until they are explicitly stopped.
@@ -14,31 +12,22 @@ IOServicePool::IOServicePool(size_t pool_size)
     work_ptr work(new boost::asio::io_service::work(*io_service));
     io_services_.push_back(io_service);
     work_.push_back(work);
+    shared_ptr<boost::function0<void> > runner(
+        new boost::function0<void>(boost::bind(&boost::asio::io_service::run, io_services_[i])));
+    threadpool_.PushTask(runner);
   }
 }
 
-void IOServicePool::Run() {
-  // Create a pool of threads to run all of the io_services.
-  vector<shared_ptr<boost::thread> > threads;
-  for (size_t i = 0; i < io_services_.size(); ++i) {
-    shared_ptr<boost::thread> t(new boost::thread(
-        bind(&boost::asio::io_service::run, io_services_[i])));
-    threads.push_back(t);
-  }
-
-  // Wait for all threads in the pool to exit.
-  for (size_t i = 0; i < threads.size(); ++i) {
-    threads[i]->timed_join(boost::posix_time::millisec(10));
-  }
+void IOServicePool::Start() {
+  threadpool_.Start();
 }
 
 void IOServicePool::Stop() {
-  // Explicitly stop all io_services.
-  for (size_t i = 0; i < io_services_.size(); ++i)
-    io_services_[i]->stop();
+  threadpool_.Stop();
 }
 
 IOServicePtr IOServicePool::get_io_service() {
+  boost::mutex::scoped_lock locker(mutex_);
   // Use a round-robin scheme to choose the next io_service to use.
   IOServicePtr io_service = io_services_[next_io_service_];
   ++next_io_service_;

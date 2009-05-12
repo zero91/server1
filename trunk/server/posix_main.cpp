@@ -22,12 +22,8 @@ int main(int argc, char* argv[]) {
 
   // Run server in background thread.
   shared_ptr<ProtobufConnection> protobuf_connection(new ProtobufConnection);
-  Server s(FLAGS_address,
-           FLAGS_port,
-           FLAGS_num_threads,
-           protobuf_connection);
-  boost::thread t(boost::bind(&Server::Run, &s));
-
+  Server s(FLAGS_num_threads, 1);
+  s.Listen(FLAGS_address, FLAGS_port, protobuf_connection);
   // Restore previous signals.
   pthread_sigmask(SIG_SETMASK, &old_mask, 0);
 
@@ -43,6 +39,5 @@ int main(int argc, char* argv[]) {
 
   // Stop the server.
   s.Stop();
-  t.join();
   return 0;
 }
