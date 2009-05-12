@@ -69,25 +69,37 @@ class EchoService2Impl : public Hello::EchoService2 {
 
 class ListenTest : public testing::Test {
  public:
-  ListenTest()
-    : server_connection_(new ProtobufConnection),
-      server_(FLAGS_num_threads, 1),
-      client_io_service_(new boost::asio::io_service),
-      client_connection_(new ClientConnection(
-          client_io_service_, FLAGS_server, FLAGS_port)),
-      client_stub_(client_connection_.get()),
-      server_thread_(boost::bind(&Server::Listen, &server_,
-                                 FLAGS_server, FLAGS_port, server_connection_)) {
+  ListenTest() {
+  }
+
+  void SetUp() {
+    server_connection_.reset(new ProtobufConnection);
+    server_.reset(new Server(FLAGS_num_threads, 1));
+    client_io_service_.reset(new boost::asio::io_service);
+    client_connection_.reset(new ClientConnection(
+        client_io_service_, FLAGS_server, FLAGS_port));
+    client_stub_.reset(new Hello::EchoService2::Stub(client_connection_.get()));
     VLOG(2) << "Register service";
     server_connection_->RegisterService(&echo_service_);
     client_connection_->RegisterService(&echo_service_);
+    server_->Listen(FLAGS_server, FLAGS_port, server_connection_);
     CHECK(!client_connection_->IsConnected());
     CHECK(client_connection_->Connect());
+  }
+
+  void TearDown() {
+    server_connection_.reset();
+    server_->Stop();
+    server_.reset();
+    client_connection_.reset();
+    client_io_service_.reset();
+    client_stub_.reset();
   }
 
   void ClientCallDone() {
     VLOG(2) << "ClientCallDone";
   }
+
   void ClientCallMultiThreadDone(
       shared_ptr<RpcController> controller,
       shared_ptr<Hello::EchoRequest> request,
@@ -95,6 +107,7 @@ class ListenTest : public testing::Test {
     VLOG(2) << "ClientCallMultiThreadDone called";
     CHECK_EQ("server->" + request->question(), response->text());
   }
+
   void ClientThreadRun() {
     shared_ptr<Hello::EchoRequest> request(new Hello::EchoRequest);
     shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
@@ -106,7 +119,7 @@ class ListenTest : public testing::Test {
     VLOG(2) << "Thread id: " << threadid;
     request->set_client_threadid(threadid);
     shared_ptr<RpcController> controller(new RpcController);
-    client_stub_.Echo1(controller.get(),
+    client_stub_->Echo1(controller.get(),
                        request.get(),
                        response.get(),
                        NewClosure(boost::bind(
@@ -116,11 +129,10 @@ class ListenTest : public testing::Test {
  protected:
   shared_ptr<ProtobufConnection> server_connection_;
   shared_ptr<boost::asio::io_service> client_io_service_;
-  Server server_;
+  shared_ptr<Server> server_;
   shared_ptr<ClientConnection> client_connection_;
   RpcController listener_controller_;
-  boost::thread server_thread_;
-  Hello::EchoService2::Stub client_stub_;
+  shared_ptr<Hello::EchoService2::Stub> client_stub_;
   EchoService2Impl echo_service_;
 };
 
@@ -129,7 +141,7 @@ TEST_F(ListenTest, Test1) {
   Hello::EchoResponse response;
   request.set_question("client question");
   RpcController controller;
-  client_stub_.Echo1(&controller,
+  client_stub_->Echo1(&controller,
                       &request,
                       &response,
                       NewClosure(boost::bind(

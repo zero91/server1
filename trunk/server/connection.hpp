@@ -7,41 +7,10 @@
 #include "server/meta.pb.h"
 #include "protobuf/service.h"
 #include "boost/thread.hpp"
-class FullDualChannel : virtual public google::protobuf::RpcController,
-  virtual public google::protobuf::RpcChannel {
- public:
-  virtual bool RegisterService(google::protobuf::Service *service) = 0;
-  virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
-                          google::protobuf::RpcController *controller,
-                          const google::protobuf::Message *request,
-                          google::protobuf::Message *response,
-                          google::protobuf::Closure *done) = 0;
-  void SetFailed(const string &failed) {
-    failed_ = failed;
-  }
-  bool Failed() const {
-    return !failed_.empty();
-  }
-  string ErrorText() const {
-    return failed_;
-  }
-  void StartCancel() {
-  }
-  bool IsCanceled() const {
-    return false;
-  }
-  void NotifyOnCancel(google::protobuf::Closure *callback) {
-  }
-  void Reset() {
-    failed_.clear();
-  }
- private:
-  string failed_;
-};
-
 class Connection;
 typedef shared_ptr<Connection> ConnectionPtr;
-class Connection : public boost::enable_shared_from_this<Connection>, public FullDualChannel, public Executor {
+typedef vector<boost::asio::const_buffer> ConstBufferVector;
+class Connection : public boost::enable_shared_from_this<Connection>, public Executor {
  public:
   void set_socket(shared_ptr<boost::asio::ip::tcp::socket> socket) {
     socket_ = socket;
@@ -59,7 +28,16 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Ful
     return socket_;
   }
 
-  virtual ~Connection() {}
+  void set_io_service(IOServicePtr io_service) {
+    io_service_ = io_service;
+  }
+
+  virtual ~Connection() {
+    VLOG(2) << "Connection close";
+    if (IsConnected()) {
+      Close();
+    }
+  }
 
   virtual void ScheduleRead() = 0;
   virtual ConnectionPtr Clone() = 0;
@@ -84,6 +62,7 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Ful
                    const boost::function1<void, const boost::system::error_code &> &call) {
     return call(e);
   }
+  shared_ptr<boost::asio::io_service> io_service_;
   shared_ptr<boost::asio::ip::tcp::socket> socket_;
   shared_ptr<Executor> executor_;
 };

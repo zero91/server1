@@ -11,6 +11,9 @@ void Server::Listen(const string &address,
                     const string &port,
                     ConnectionPtr connection_template) {
   // Open the acceptor with the option to reuse the address (i.e. SO_REUSEADDR).
+  VLOG(2) << "Server running";
+  threadpool_->Start();
+  io_service_pool_.Start();
   shared_ptr<boost::asio::ip::tcp::acceptor> acceptor(new boost::asio::ip::tcp::acceptor(
       *io_service_pool_.get_io_service().get()));
   boost::asio::ip::tcp::resolver resolver(acceptor->io_service());
@@ -25,9 +28,6 @@ void Server::Listen(const string &address,
   acceptor->async_accept(*socket.get(),
       boost::bind(&Server::HandleAccept, shared_from_this(),
         boost::asio::placeholders::error, acceptor, socket, connection_template));
-  VLOG(2) << "Server running";
-  threadpool_->Start();
-  io_service_pool_.Start();
 }
 
 void Server::Stop() {
@@ -41,7 +41,7 @@ void Server::HandleAccept(const boost::system::error_code& e,
                           shared_ptr<boost::asio::ip::tcp::socket> socket,
                           ConnectionPtr connection_template) {
   if (!e) {
-    VLOG(2) << "Handle accept";
+    VLOG(2) << "HandleAccept";
     ConnectionPtr new_connection(connection_template->Clone());
     new_connection->set_socket(socket);
     new_connection->set_executor(
@@ -52,5 +52,7 @@ void Server::HandleAccept(const boost::system::error_code& e,
     acceptor->async_accept(*new_socket.get(),
         boost::bind(&Server::HandleAccept, shared_from_this(),
           boost::asio::placeholders::error, acceptor, new_socket, connection_template));
+  } else {
+    VLOG(2) << "HandleAccept error: " << e.message();
   }
 }

@@ -26,6 +26,7 @@ class ClientConnection : public ProtobufConnection {
       LOG(WARNING) << ":fail to connect, error:"  << error.message();
       return false;
     }
+    this->set_io_service(io_service_);
     this->set_socket(socket);
     return true;
   }

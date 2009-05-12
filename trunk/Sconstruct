@@ -69,8 +69,8 @@ other_libs = [
 
 static_libs = other_libs + list(set(boost_libs))
 
-#dynamic_libs = ['pthread', 'tcmalloc']
-dynamic_libs = ['pthread']
+dynamic_libs = ['pthread', 'tcmalloc']
+#dynamic_libs = ['pthread']
 
 link_flags = '-g -Wl,-Bdynamic'
 for i in dynamic_libs:

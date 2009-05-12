@@ -9,8 +9,39 @@
 #include <protobuf/message.h>
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
-typedef vector<boost::asio::const_buffer> ConstBufferVector;
-class ProtobufDecoder : public Object {
+class FullDualChannel : virtual public google::protobuf::RpcController,
+  virtual public google::protobuf::RpcChannel {
+ public:
+  virtual bool RegisterService(google::protobuf::Service *service) = 0;
+  virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
+                          google::protobuf::RpcController *controller,
+                          const google::protobuf::Message *request,
+                          google::protobuf::Message *response,
+                          google::protobuf::Closure *done) = 0;
+  void SetFailed(const string &failed) {
+    failed_ = failed;
+  }
+  bool Failed() const {
+    return !failed_.empty();
+  }
+  string ErrorText() const {
+    return failed_;
+  }
+  void StartCancel() {
+  }
+  bool IsCanceled() const {
+    return false;
+  }
+  void NotifyOnCancel(google::protobuf::Closure *callback) {
+  }
+  void Reset() {
+    failed_.clear();
+  }
+ private:
+  string failed_;
+};
+
+class ProtobufDecoder {
  public:
   /// Construct ready to parse the request method.
   ProtobufDecoder() : state_(Start) {
@@ -54,7 +85,7 @@ private:
   ProtobufLineFormat::MetaData meta_;
 };
 
-class ProtobufConnection : public ConnectionImpl<ProtobufDecoder> {
+class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDualChannel {
  private:
    typedef hash_map<uint64, boost::function2<void, shared_ptr<const ProtobufDecoder>,
           ProtobufConnection*> > HandlerTable;

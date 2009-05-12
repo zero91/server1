@@ -30,7 +30,8 @@ private:
 
   int next_io_service_;
 
-  ThreadPool threadpool_;
+  shared_ptr<ThreadPool> threadpool_;
   boost::mutex mutex_;
+  int pool_size_;
 };
 #endif // NET2_IO_SERVICE_POOL_HPP_
