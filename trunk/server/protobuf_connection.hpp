@@ -92,11 +92,15 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDu
  public:
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
       handler_table_(new HandlerTable) {
+    VLOG(2) << "New protobuf connection" << this;
   }
+
+  ~ProtobufConnection();
 
   ConnectionPtr Clone() {
     ConnectionPtr connection(new ProtobufConnection(
         this->handler_table_));
+    VLOG(2) << "Clone protobufconnection: " << connection.get();
     return connection;
   }
   // Non thread safe.
@@ -110,15 +114,10 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDu
  private:
   ProtobufConnection(shared_ptr<HandlerTable> handler_table) : ConnectionImpl<ProtobufDecoder>(),
       handler_table_(handler_table) {
+    VLOG(2) << "New protobuf connection" << this;
   }
 
   virtual void Handle(shared_ptr<const ProtobufDecoder> decoder);
-  void CallMethodCallback(
-      shared_ptr<const ProtobufDecoder> decoder,
-      ProtobufConnection *,
-      google::protobuf::RpcController *controller,
-      google::protobuf::Message *response,
-      google::protobuf::Closure *done);
   shared_ptr<HandlerTable> handler_table_;
   // The response handler table is per connection.
   HandlerTable response_handler_table_;

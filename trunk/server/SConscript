@@ -14,7 +14,10 @@ server_env.StaticLibrary(
    'server.cpp',
    'server.hpp'],
    )
-
 server_env.Program(
   target = 'server0',
   source = ['posix_main.cpp'])
+
+server_env.Program(
+  target = 'client0',
+  source = ['posix_client.cpp'])

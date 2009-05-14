@@ -42,13 +42,16 @@ void Server::HandleAccept(const boost::system::error_code& e,
                           ConnectionPtr connection_template) {
   if (!e) {
     VLOG(2) << "HandleAccept";
-    ConnectionPtr new_connection(connection_template->Clone());
-    new_connection->set_socket(socket);
-    new_connection->set_executor(
-        threadpool_->shared_from_this());
-    new_connection->ScheduleRead();
+    if (socket.get() && socket->is_open()) {
+      VLOG(2) << "Socket is connected";
+      ConnectionPtr new_connection(connection_template->Clone());
+      new_connection->set_socket(socket);
+      new_connection->set_executor(
+          threadpool_->shared_from_this());
+      new_connection->ScheduleRead();
+    }
     shared_ptr<boost::asio::ip::tcp::socket> new_socket(
-        new boost::asio::ip::tcp::socket(*io_service_pool_.get_io_service().get()));
+        new boost::asio::ip::tcp::socket(*io_service_pool_.get_io_service()));
     acceptor->async_accept(*new_socket.get(),
         boost::bind(&Server::HandleAccept, shared_from_this(),
           boost::asio::placeholders::error, acceptor, new_socket, connection_template));

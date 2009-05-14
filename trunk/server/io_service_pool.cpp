@@ -23,9 +23,7 @@ void IOServicePool::Start() {
     work_ptr work(new boost::asio::io_service::work(*io_service));
     io_services_.push_back(io_service);
     work_.push_back(work);
-    shared_ptr<boost::function0<void> > runner(
-        new boost::function0<void>(boost::bind(&boost::asio::io_service::run, io_services_[i])));
-    threadpool_->PushTask(runner);
+    threadpool_->PushTask(boost::bind(&boost::asio::io_service::run, io_services_[i]));
   }
   threadpool_->Start();
 }

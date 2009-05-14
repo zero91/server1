@@ -9,6 +9,11 @@ class IOServicePool : private boost::noncopyable {
 public:
   /// Construct the io_service pool.
   explicit IOServicePool(size_t pool_size);
+  ~IOServicePool() {
+    if (!work_.empty()) {
+      Stop();
+    }
+  }
 
   /// Run all io_service objects in the pool.
   void Start();

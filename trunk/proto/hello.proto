@@ -12,7 +12,7 @@ message EchoRequest {
 message EchoResponse {
   required int32 echoed = 1;
   required string text = 2;
-  required bool close = 3 [default = false];
+  optional bool close = 3 [default = false];
 }
 
 message EchoRequest2 {

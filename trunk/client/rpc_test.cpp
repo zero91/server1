@@ -33,11 +33,11 @@ class EchoTest : public testing::Test {
   }
 
   void SetUp() {
+    VLOG(2) << "New server connection";
     server_connection_.reset(new ProtobufConnection);
-    client_io_service_.reset(new boost::asio::io_service);
     server_.reset(new Server(FLAGS_num_threads, 1));
+    VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection(
-        client_io_service_,
         FLAGS_server, FLAGS_port));
     stub_.reset(new Hello::EchoService::Stub(client_connection_.get()));
     server_->Listen(FLAGS_server, FLAGS_port, server_connection_);
@@ -50,9 +50,10 @@ class EchoTest : public testing::Test {
   }
 
   void TearDown() {
+    VLOG(2) << "Reset server connection";
     server_connection_.reset();
-    client_io_service_.reset();
     server_.reset();
+    VLOG(2) << "Reset client connection";
     client_connection_.reset();
     stub_.reset();
     done_.reset();
@@ -60,11 +61,9 @@ class EchoTest : public testing::Test {
 
   void CallDone() {
     LOG(INFO) << "Call done is called";
-    client_io_service_->stop();
   }
  protected:
   shared_ptr<ProtobufConnection> server_connection_;
-  shared_ptr<boost::asio::io_service> client_io_service_;
   shared_ptr<ClientConnection> client_connection_;
   shared_ptr<Server> server_;
   EchoServiceImpl echo_service_;
@@ -81,7 +80,6 @@ TEST_F(EchoTest, Test1) {
               &request,
               &response,
               done_.get());
-  client_io_service_->run();
   VLOG(2) << "client service return";
   LOG(INFO) << response.text();
   EXPECT_EQ(request.question(), response.text());

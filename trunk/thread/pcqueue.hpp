@@ -1,31 +1,32 @@
 #ifndef PCQUEUE_HPP_
 #define PCQUEUE_HPP_
+#include <glog/logging.h>
 #include <boost/thread/condition.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
 template <class Type>
-class PCQueue : public boost::noncopyable, boost::enable_shared_from_this<PCQueue<Type> > {
+class PCQueue : public boost::noncopyable, public boost::enable_shared_from_this<PCQueue<Type> > {
  public:
   PCQueue() {
   }
-  shared_ptr<Type> Pop() {
+  Type Pop() {
     boost::mutex::scoped_lock locker(mutex_);
-    if (queue_.empty()) {
+    while (queue_.empty()) {
       queue_not_empty_.wait(locker);
     }
-    shared_ptr<Type> t = queue_.front();
+    CHECK(!queue_.empty());
+    Type t(queue_.front());
     queue_.pop_front();
     return t;
   }
-  void Push(shared_ptr<Type> t) {
+  void Push(const Type &t) {
     boost::mutex::scoped_lock locker(mutex_);
-    if (queue_.empty()) {
-      queue_not_empty_.notify_one();
-    }
     queue_.push_back(t);
+    queue_not_empty_.notify_one();
   }
+
  private:
-  list<shared_ptr<Type> > queue_;
+  list<Type> queue_;
   boost::mutex mutex_;
   boost::condition queue_not_empty_;
 };

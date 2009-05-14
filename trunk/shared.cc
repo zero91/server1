@@ -3,8 +3,16 @@
 #include <boost/function.hpp>
 #include <boost/bind.hpp>
 
-struct Base0 : public boost::function1<void, boost::function0<void> > {
-  virtual void Run() = 0;
+struct Base0 : public boost::function1<void, boost::function0<void> >, boost::enable_shared_from_this<Base0> {
+  virtual void Run() {
+    printf("run base0");
+  }
+  ~Base0() {
+    printf ("~Base0");
+  }
+  Base0() {
+    printf("Base0");
+  }
 };
 
 template <typename A>
@@ -36,7 +44,13 @@ int main(int argc, char **argv) {
   boost::shared_ptr<boost::function0<void> > b1(new boost::function0<void>(boost::bind(
       &Base2<int>::Run, b2->Base1<int>::shared_from_this())));
   b2->operator()();
+  boost::shared_ptr<Base0> b0(new Base0);
+  boost::shared_ptr<const boost::function0<void> > a(
+      new boost::function0<void>(boost::bind(&Base0::Run, b0->shared_from_this())));
+  b0->Run();
   */
-  boost::shared_ptr<Base3> b3(new Base3);
-  b3->shared_from_this()->Run();
+  boost::shared_ptr<Base0> b0;
+  b0.reset(new Base0);
+  printf("%d,%d\n", b0.use_count(), b0->shared_from_this().use_count());
+  b0.reset();
 }

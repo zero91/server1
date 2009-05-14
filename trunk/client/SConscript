@@ -1,7 +1,7 @@
 Import('env')
 client_env  = env
-client_env.Append(LIBPATH=['$objroot/client'])
-client_env.Prepend(LIBS=['client'])
+client_env.Append(LIBPATH=['$objroot/client', '$objroot/proto'])
+client_env.Prepend(LIBS=['client', 'hello_pb'])
 
 client_env.StaticLibrary(
   target = 'client',

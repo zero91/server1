@@ -16,6 +16,15 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
           << " content size: " << content->size();
   return make_pair(header, content);
 };
+ProtobufConnection::~ProtobufConnection() {
+  VLOG(2) << "Distroy protobuf connection" << this;
+  shared_ptr<ProtobufDecoder> decoder;
+  for (HandlerTable::iterator it = response_handler_table_.begin();
+       it != response_handler_table_.end(); ++it) {
+    VLOG(2) << "Call response handler in destructor";
+    it->second(decoder, this);
+  }
+}
 
 template <>
 template <>
@@ -93,6 +102,9 @@ static void CallServiceMethodDone(
     shared_ptr<const ProtobufDecoder> decoder,
     shared_ptr<google::protobuf::Message> resource,
     shared_ptr<google::protobuf::Message> response) {
+  VLOG(2) << "HandleService->CallServiceMethodDone()";
+  CHECK(decoder.get() != NULL);
+  VLOG(2) << "use count: " << connection->shared_from_this().use_count() - 1;
   const ProtobufLineFormat::MetaData &request_meta = decoder->meta();
   ProtobufLineFormat::MetaData response_meta;
   response_meta.set_type(ProtobufLineFormat::MetaData::RESPONSE);
@@ -101,17 +113,17 @@ static void CallServiceMethodDone(
     << "Fail to serialize response for requst: " << request_meta.DebugString();
   connection->PushData(EncodeMessage(&response_meta));
   connection->ScheduleWrite();
-  VLOG(3) << "CallServiceMethodDone()";
 }
 
-static void HandlerService(
+static void HandleService(
     google::protobuf::Service *service,
     const google::protobuf::MethodDescriptor *method,
     const google::protobuf::Message *request_prototype,
     const google::protobuf::Message *response_prototype,
     shared_ptr<const ProtobufDecoder> decoder,
     ProtobufConnection *connection) {
-  VLOG(2) << "Handler service: " << method->full_name();
+  VLOG(2) << "HandleService: " << method->full_name();
+  VLOG(2) << "use count: " << connection->shared_from_this().use_count() - 1;
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
   shared_ptr<google::protobuf::Message> request(request_prototype->New());
   const string &content = decoder->meta().content();
@@ -153,14 +165,16 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
     handler_table_->insert(make_pair(
         method_fingerprint,
         boost::bind(
-        HandlerService, service, method, request, response,
+        HandleService, service, method, request, response,
         _1, _2)));
   }
 }
 
 void ProtobufConnection::Handle(shared_ptr<const ProtobufDecoder> decoder) {
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
+  VLOG(2) << "use count: " << shared_from_this().use_count() - 1;
   VLOG(2) << "Handle request: " << meta.DebugString();
+  VLOG(2) << "use count: " << shared_from_this().use_count() - 1;
   HandlerTable::iterator it = handler_table_->find(meta.identify());
   if (it != handler_table_->end()) {
     it->second(decoder, this);
@@ -180,11 +194,38 @@ void ProtobufConnection::Handle(shared_ptr<const ProtobufDecoder> decoder) {
   handler(decoder, this);
 }
 
+static void CallMethodCallback(
+    shared_ptr<const ProtobufDecoder> decoder,
+    ProtobufConnection *connection,
+    google::protobuf::RpcController *controller,
+    google::protobuf::Message *response,
+    google::protobuf::Closure *done) {
+  if (decoder.get() == NULL) {
+    VLOG(2) << "NULL Decoder, may call from destructor";
+    if (done) done->Run();
+    return;
+  }
+  const ProtobufLineFormat::MetaData &meta = decoder->meta();
+  VLOG(3) << "Handle response message "
+          << response->GetDescriptor()->full_name()
+          << " response: " << meta.DebugString();
+  if (!response->ParseFromArray(meta.content().c_str(),
+                                meta.content().size())) {
+    LOG(WARNING) << "Fail to parse the response :"
+                 << meta.DebugString();
+    controller->SetFailed("Fail to parse the response:" + meta.DebugString());
+    if (done) done->Run();
+    return;
+  }
+  if (done) done->Run();
+}
+
 void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
                   google::protobuf::RpcController *controller,
                   const google::protobuf::Message *request,
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done) {
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
   uint64 request_identify = hash8(method->full_name());
   uint64 response_identify = hash8(response->GetDescriptor()->full_name());
   boost::mutex::scoped_lock locker(response_handler_table_mutex_);
@@ -200,32 +241,29 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
     LOG(WARNING) << "Fail to serialze request form method: "
                  << method->full_name();
   }
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
   response_handler_table_.insert(make_pair(
       response_identify,
-      boost::bind(&ProtobufConnection::CallMethodCallback, this,
-                  _1, _2, controller, response, done)));
+      boost::bind(CallMethodCallback, _1, _2, controller, response, done)));
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
   PushData(EncodeMessage(&meta));
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
   ScheduleWrite();
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
   ScheduleRead();
-}
-
-void ProtobufConnection::CallMethodCallback(
-    shared_ptr<const ProtobufDecoder> decoder,
-    ProtobufConnection *,
-    google::protobuf::RpcController *controller,
-    google::protobuf::Message *response,
-    google::protobuf::Closure *done) {
-  const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  VLOG(3) << "Handle response message "
-          << response->GetDescriptor()->full_name()
-          << " response: " << meta.DebugString();
-  if (!response->ParseFromArray(meta.content().c_str(),
-                                meta.content().size())) {
-    LOG(WARNING) << "Fail to parse the response :"
-                 << meta.DebugString();
-    controller->SetFailed("Fail to parse the response:" + meta.DebugString());
-    if (done) done->Run();
-    return;
-  }
-  if (done) done->Run();
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << "Call Method connection use count: " << shared_from_this().use_count() - 1;
 }
