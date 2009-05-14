@@ -83,9 +83,11 @@ class ListenTest : public testing::Test {
   void SetUp() {
     VLOG(2) << "New server connection";
     server_connection_.reset(new ProtobufConnection);
+    server_connection_->set_name("Server");
     server_.reset(new Server(FLAGS_num_threads, 1));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection(FLAGS_server, FLAGS_port));
+    client_connection_->set_name("Client");
     VLOG(2) << "client connection, use count: " << client_connection_.use_count();
     client_stub_.reset(new Hello::EchoService2::Stub(client_connection_.get()));
     pcqueue_.reset(new PCQueue<bool>);

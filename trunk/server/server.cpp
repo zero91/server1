@@ -36,6 +36,10 @@ void Server::Stop() {
   io_service_pool_.Stop();
 }
 
+static void RemoveConnection(ConnectionPtr connection) {
+  VLOG(2) << connection->name() << " removed";
+}
+
 void Server::HandleAccept(const boost::system::error_code& e,
                           shared_ptr<boost::asio::ip::tcp::acceptor> acceptor,
                           shared_ptr<boost::asio::ip::tcp::socket> socket,
@@ -48,6 +52,8 @@ void Server::HandleAccept(const boost::system::error_code& e,
       new_connection->set_socket(socket);
       new_connection->set_executor(
           threadpool_->shared_from_this());
+      new_connection->set_close_handler(boost::bind(
+          &RemoveConnection, new_connection));
       new_connection->ScheduleRead();
     }
     shared_ptr<boost::asio::ip::tcp::socket> new_socket(

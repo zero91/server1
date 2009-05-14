@@ -34,8 +34,20 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Exe
     io_service_ = io_service;
   }
 
+  void set_name(const string name) {
+    name_ = name;
+  }
+
+  const string name() const {
+    return name_;
+  }
+
+  void set_close_handler(const boost::function0<void> &h) {
+    close_handler_ = h;
+  }
+
   virtual ~Connection() {
-    VLOG(2) << "Connection Distroy " << this;
+    VLOG(2) << name() << " : " << "Connection Distroy " << this;
     if (IsConnected()) {
       Close();
     }
@@ -45,23 +57,27 @@ class Connection : public boost::enable_shared_from_this<Connection>, public Exe
   virtual ConnectionPtr Clone() = 0;
   virtual void ScheduleWrite() = 0;
   virtual void Close() {
-    VLOG(2) << "Connection socket close";
-    boost::system::error_code ignored_ec;
-    socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
+    if (IsConnected()) {
+      VLOG(2) << name() << " : " << "Connection socket close";
+      boost::system::error_code ignored_ec;
+      socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
+      if (!close_handler_.empty()) {
+        close_handler_();
+      }
+    }
   }
   virtual bool IsConnected() {
     return socket_.get() && socket_->is_open();
   }
  protected:
-  // Handle completion of a read operation.
-  virtual void HandleRead(const boost::system::error_code& e,
-                  size_t bytes_transferred) = 0;
-
-  // Handle completion of a write operation.
+  friend void HandleRead(Connection *connection, const boost::system::error_code& e, size_t bytes_transferred);
+  virtual void HandleRead(const boost::system::error_code& e, size_t bytes_transferred) = 0;
   virtual void HandleWrite(const boost::system::error_code& e) = 0;
   shared_ptr<boost::asio::io_service> io_service_;
   shared_ptr<boost::asio::ip::tcp::socket> socket_;
   shared_ptr<Executor> executor_;
+  string name_;
+  boost::function0<void> close_handler_;
 };
 
 // Represents a single Connection from a client.
@@ -136,14 +152,9 @@ protected:
     int status_;
   };
 
-  // Handle completion of a read operation.
-  void HandleRead(const boost::system::error_code& e,
-                  size_t bytes_transferred);
-
-  // Handle completion of a write operation.
-  void HandleWrite(const boost::system::error_code& e);
   virtual void Handle(shared_ptr<const Decoder> decoder) = 0;
-
+  void HandleRead(const boost::system::error_code& e, size_t bytes_transferred);
+  void HandleWrite(const boost::system::error_code& e);
   static const int kBufferSize = 8192;
   typedef boost::array<char, kBufferSize> Buffer;
 
@@ -159,28 +170,93 @@ protected:
   shared_ptr<Decoder> decoder_;
 };
 
+// Handle completion of a read operation.
+inline void HandleRead(Connection *connection,
+                       const boost::system::error_code& e,
+                       size_t bytes_transferred) {
+  if (!e) {
+    VLOG(2) << connection->name() << " : " << connection << " ScheduleRead handle read connection use count" << connection->shared_from_this().use_count();
+    connection->HandleRead(e, bytes_transferred);
+  } else {
+    connection->Close();
+    VLOG(2) <<"Read error, clear status and return";
+  }
+}
+
+template <class Decoder>
+void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
+                                         size_t bytes_transferred) {
+  VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
+          << bytes_transferred << " content: "
+          << string(buffer_.data(), bytes_transferred);
+  CHECK(status_.reading());
+  boost::tribool result;
+  const char *start = buffer_.data();
+  const char *end = start + bytes_transferred;
+  const char *p = start;
+  while (p < end) {
+    boost::tie(result, p) =
+      decoder_->Decode(p, end);
+    if (result) {
+      VLOG(2) << name() << " : " << "Handle lineformat: size: " << (p - start);
+      VLOG(2) << name() << " : " << " use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
+      shared_ptr<const Decoder> shared_decoder(decoder_);
+      decoder_.reset(new Decoder);
+      shared_ptr<Executor> this_executor(this->executor());
+      VLOG(2) << name() << " : " << " use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
+      VLOG(2) << name() << " : " << " use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
+      /*
+         if (this_executor.get() == NULL) {
+         Handle(shared_decoder);
+         } else {
+      // This is executed in another thread.
+      boost::function0<void> handler = boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder);
+      this_executor->Run(boost::bind(
+          &Connection::Run, shared_from_this(), handler));
+          }
+          */
+      Handle(shared_decoder);
+      VLOG(2) << name() << " : " << this << " ScheduleRead execute use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
+    } else if (!result) {
+      VLOG(2) << name() << " : " << "Parse error";
+      status_.clear_reading();
+      ScheduleRead();
+      break;
+    } else {
+      VLOG(2) << name() << " : " << "Need to read more data";
+      status_.clear_reading();
+      ScheduleRead();
+      return;
+    }
+  }
+  VLOG(2) << name() << " : " << this << "ScheduleRead After reach the end use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
+  status_.clear_reading();
+  ScheduleRead();
+}
+
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleRead() {
-  VLOG(2) << "connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
+  VLOG(2) << name() << " : " << "connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
   if (status_.reading()) {
-    VLOG(2) << "Alreading in reading status";
+    VLOG(2) << name() << " : " << "Alreading in reading status";
     return;
   }
   status_.set_reading();
-  VLOG(2) << "ScheduleRead" << " socket open: " << socket_->is_open() << " use count " << shared_from_this().use_count() - 1 << " status: " << status_.status() << " " << this;
-  VLOG(2) << "connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
+  VLOG(2) << name() << " : " << "ScheduleRead" << " socket open: " << socket_->is_open() << " use count " << shared_from_this().use_count() - 1 << " status: " << status_.status() << " " << this;
+  VLOG(2) << name() << " : " << "connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
   socket_->async_read_some(boost::asio::buffer(buffer_),
-      boost::bind(&Connection::HandleRead, shared_from_this(),
+      boost::bind(::HandleRead, this,
+//      boost::bind(&Connection::HandleRead, this,
         boost::asio::placeholders::error,
         boost::asio::placeholders::bytes_transferred));
-  VLOG(2) << this << " ScheduleRead connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
+  VLOG(2) << name() << " : " << this << " ScheduleRead connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleWrite() {
-  VLOG(2) << "connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() << " " << this;
+  VLOG(2) << name() << " : " << "connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() << " " << this;
   if (status_.writting()) {
-    VLOG(2) << "Alreading in writting status";
+    VLOG(2) << name() << " : " << "Alreading in writting status";
     return;
   }
   status_.set_writting();
@@ -193,7 +269,7 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
   }
 
   const int outcoming_index = 1 - incoming_index_;
-  VLOG(2) << "Schedule Write socket open:" << socket_->is_open();
+  VLOG(2) << name() << " : " << "Schedule Write socket open:" << socket_->is_open();
   shared_ptr<vector<SharedConstBuffer> > outcoming(duplex_[outcoming_index]);
   if (outcoming.get() == NULL || outcoming->empty()) {
     status_.clear_writting();
@@ -203,79 +279,24 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
   boost::asio::async_write(
       *socket_.get(), *outcoming.get(),
       boost::bind(
-          &Connection::HandleWrite, shared_from_this(),
+//          &Connection::HandleWrite, shared_from_this(),
+          &Connection::HandleWrite, this,
           boost::asio::placeholders::error));
-  VLOG(2) << this << " ScheduleWrite connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
+  VLOG(2) << name() << " : " << this << " ScheduleWrite connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status();
 }
 
-template <typename Decoder>
-void ConnectionImpl<Decoder>::HandleRead(
-      const boost::system::error_code& e,
-      size_t bytes_transferred) {
-  VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
-          << bytes_transferred << " content: "
-          << string(buffer_.data(), bytes_transferred);
-  VLOG(2) << this << " ScheduleRead handle read connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
-  if (!e) {
-    CHECK(status_.reading());
-    boost::tribool result;
-    const char *start = buffer_.data();
-    const char *end = start + bytes_transferred;
-    const char *p = start;
-    while (p < end) {
-      boost::tie(result, p) =
-        decoder_->Decode(p, end);
-      if (result) {
-        VLOG(2) << "Handle lineformat: size: " << (p - start);
-        VLOG(2) << " use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
-        shared_ptr<const Decoder> shared_decoder(decoder_);
-        decoder_.reset(new Decoder);
-        shared_ptr<Executor> this_executor(this->executor());
-        VLOG(2) << " use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
-        VLOG(2) << " use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
-        /*
-        if (this_executor.get() == NULL) {
-          Handle(shared_decoder);
-        } else {
-          // This is executed in another thread.
-          boost::function0<void> handler = boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder);
-          this_executor->Run(boost::bind(
-              &Connection::Run, shared_from_this(), handler));
-        }
-        */
-        Handle(shared_decoder);
-        VLOG(2) << this << " ScheduleRead execute use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
-      } else if (!result) {
-        VLOG(2) << "Parse error";
-        status_.clear_reading();
-        ScheduleRead();
-        break;
-      } else {
-        VLOG(2) << "Need to read more data";
-        status_.clear_reading();
-        ScheduleRead();
-        return;
-      }
-    }
-    VLOG(2) << this << "ScheduleRead After reach the end use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() <<" : " << this;
-    status_.clear_reading();
-    ScheduleRead();
-  } else {
-    status_.clear_reading();
-    VLOG(2) << "Read error, clear status and return";
-  }
-}
+
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e) {
-  VLOG(2) << this << " ScheduleWrite handle write connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() << " : " << this;
+  VLOG(2) << name() << " : " << this << " ScheduleWrite handle write connection use count" << shared_from_this().use_count() - 1 << " status: " << status_.status() << " : " << this;
   CHECK(status_.writting());
   if (!e) {
     status_.clear_writting();
     ScheduleWrite();
   } else {
     status_.clear_writting();
-    VLOG(2) << "Write error, clear status and return";
+    VLOG(2) << name() << " : " << "Write error, clear status and return";
   }
 }
 #endif // NET2_CONNECTION_HPP_

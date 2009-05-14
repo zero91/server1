@@ -97,12 +97,8 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDu
 
   ~ProtobufConnection();
 
-  ConnectionPtr Clone() {
-    ConnectionPtr connection(new ProtobufConnection(
-        this->handler_table_));
-    VLOG(2) << "Clone protobufconnection: " << connection.get();
-    return connection;
-  }
+  ConnectionPtr Clone();
+
   // Non thread safe.
   bool RegisterService(google::protobuf::Service *service);
   // Thread safe.
