@@ -5,8 +5,7 @@
 #include "thread/pcqueue.hpp"
 #include <boost/thread/tss.hpp>
 #include <glog/logging.h>
-class ThreadPool : public boost::noncopyable, public boost::enable_shared_from_this<ThreadPool>,
-  public Executor {
+class ThreadPool : public boost::noncopyable, public Executor {
  public:
   ThreadPool(int size) : size_(size) {
   }
@@ -17,10 +16,9 @@ class ThreadPool : public boost::noncopyable, public boost::enable_shared_from_t
       LOG(INFO) << "ThreadPool Running";
       return;
     }
+    threads_.reserve(size_);
     for (int i = 0; i < size_; ++i) {
-      shared_ptr<boost::thread> t(new boost::thread(
-          &ThreadPool::Loop, this, i));
-      threads_.push_back(t);
+      threads_.push_back(boost::thread(&ThreadPool::Loop, this, i));
     }
   }
   void Stop() {
@@ -31,14 +29,13 @@ class ThreadPool : public boost::noncopyable, public boost::enable_shared_from_t
       return;
     }
     for (int i = 0; i < threads_.size(); ++i) {
-      PushTask(boost::bind(&ThreadPool::Exit, this));
+      PushTask(boost::function0<void>());
     }
     for (int i = 0; i < threads_.size(); ++i) {
-      threads_[i]->join();
+      threads_[i].join();
       VLOG(2) << "Join thread: " << i;
     }
     threads_.clear();
-    loop_.reset();
   }
   void PushTask(const boost::function0<void> &t) {
     VLOG(2) << "PushTask";
@@ -48,23 +45,20 @@ class ThreadPool : public boost::noncopyable, public boost::enable_shared_from_t
     PushTask(f);
   }
  private:
-  void Exit() {
-    *loop_.get() = false;
-  }
   void Loop(int i) {
-    loop_.reset(new bool(true));
-    boost::function0<void> h;
     VLOG(2) << "Thread pool worker " << i << " Start";
-    while (*loop_.get()) {
+    while (1) {
       VLOG(2) << "Thread pool worker " << i << " wait task";
-      pcqueue_.Pop()();
-      VLOG(2) << "Thread pool worker " << i << " get task";
-      VLOG(2) << "loop: " << *loop_.get();
+      boost::function0<void> h = pcqueue_.Pop();
+      if (h.empty()) {
+        VLOG(2) << "Thread pool worker " << i << " get empty task, so break";
+        break;
+      }
+      h();
     }
     VLOG(2) << "Thread pool worker " << i << " Stop";
   }
-  boost::thread_specific_ptr<bool> loop_;
-  vector<shared_ptr<boost::thread> > threads_;
+  vector<boost::thread> threads_;
   int size_;
   boost::mutex run_mutex_;
   PCQueue<boost::function0<void> > pcqueue_;

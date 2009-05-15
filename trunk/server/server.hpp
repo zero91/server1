@@ -11,7 +11,7 @@
 #include "thread/threadpool.hpp"
 // The top-level class of the Server.
 class Server
-  : private boost::noncopyable, public boost::enable_shared_from_this<Server> {
+  : private boost::noncopyable {
 public:
   /// Construct the Server to listen on the specified TCP address and port, and
   /// serve up files from the given directory.
@@ -25,14 +25,13 @@ public:
   void Stop();
 private:
   // Handle completion of an asynchronous accept operation.
-  void HandleAccept(
-      const boost::system::error_code& e,
-      shared_ptr<boost::asio::ip::tcp::acceptor> acceptor,
-      shared_ptr<boost::asio::ip::tcp::socket> socket,
-      ConnectionPtr connection_template);
+  void HandleAccept(const boost::system::error_code& e);
 
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
-  shared_ptr<ThreadPool> threadpool_;
+  ThreadPool threadpool_;
+  Allocator allocator_;
+  boost::mutex acceptor_table_mutex_;
+  AcceptorTable acceptor_table_;
 };
 #endif // NET2_SERVER_HPP

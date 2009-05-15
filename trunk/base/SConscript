@@ -1,3 +1,5 @@
+Import('env')
+Test(env, 'allocator')
 StaticLibrary('base',
   ['base.hpp',
    'buffer.hpp',

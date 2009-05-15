@@ -1,11 +1,13 @@
 #ifndef CLIENT_CONNECTION_HPP
 #define CLIENT_CONNECTION_HPP
 #include "server/protobuf_connection.hpp"
+#include "server/io_service_pool.hpp"
 class ClientConnection : public ProtobufConnection {
  public:
   ClientConnection(const string &server, const string &port)
     : ProtobufConnection(), io_service_pool_(1), server_(server), port_(port) {
       VLOG(2) << "Constructor client connection";
+      set_allocator(&allocator_);
   }
 
   bool Connect() {
@@ -15,24 +17,23 @@ class ClientConnection : public ProtobufConnection {
     }
     io_service_pool_.Start();
     boost::asio::ip::tcp::resolver::query query(server_, port_);
-    boost::asio::ip::tcp::resolver resolver(*io_service_pool_.get_io_service());
+    boost::asio::ip::tcp::resolver resolver(io_service_pool_.get_io_service());
     boost::asio::ip::tcp::resolver::iterator endpoint_iterator(
         resolver.resolve(query));
     boost::asio::ip::tcp::resolver::iterator end;
     // Try each endpoint until we successfully establish a connection.
     boost::system::error_code error = boost::asio::error::host_not_found;
-    shared_ptr<boost::asio::ip::tcp::socket> socket(
-        new boost::asio::ip::tcp::socket(*io_service_pool_.get_io_service()));
+    socket_.reset(
+        new boost::asio::ip::tcp::socket(io_service_pool_.get_io_service()));
     while (error && endpoint_iterator != end) {
-      socket->close();
-      socket->connect(*endpoint_iterator++, error);
+      socket_->close();
+      socket_->connect(*endpoint_iterator++, error);
     }
     if (error) {
       LOG(WARNING) << ":fail to connect, error:"  << error.message();
       return false;
     }
-    this->set_io_service(io_service_pool_.get_io_service());
-    this->set_socket(socket);
+    this->set_socket(socket_.get());
     return true;
   }
   void Disconnect() {
@@ -42,6 +43,8 @@ class ClientConnection : public ProtobufConnection {
  private:
   IOServicePool io_service_pool_;
   string server_, port_;
+  Allocator allocator_;
+  scoped_ptr<boost::asio::ip::tcp::socket> socket_;
 };
 
 class RpcController : public google::protobuf::RpcController {

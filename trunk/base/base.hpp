@@ -21,7 +21,6 @@ typedef pcrecpp::StringPiece StringPiece;
 #include <boost/function.hpp>
 using boost::scoped_ptr;
 using boost::scoped_array;
-using boost::shared_ptr;
 
 #include <string>
 #include <vector>

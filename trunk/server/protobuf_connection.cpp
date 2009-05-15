@@ -48,6 +48,7 @@ boost::tribool ProtobufDecoder::Consume(char input) {
     case Start:
       {
         if (!isdigit(input)) {
+          LOG(WARNING) << "Start but is not digit";
           return false;
         }
         state_ = Length;
@@ -62,6 +63,7 @@ boost::tribool ProtobufDecoder::Consume(char input) {
         content_.reserve(length_);
         return boost::indeterminate;
       } else if (!isdigit(input)) {
+        LOG(WARNING) << "Length is not digit";
         return false;
       } else {
         length_store_.push_back(input);
@@ -93,6 +95,7 @@ boost::tribool ProtobufDecoder::Consume(char input) {
       }
       return boost::indeterminate;
     default:
+      LOG(WARNING) << "Unknown status of ProtobufDecoder";
       return false;
   }
 }

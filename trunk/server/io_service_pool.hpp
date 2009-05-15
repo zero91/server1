@@ -22,16 +22,15 @@ public:
   void Stop();
 
   /// Get an io_service to use.
-  IOServicePtr get_io_service();
+  boost::asio::io_service &get_io_service();
 
 private:
-  typedef shared_ptr<boost::asio::io_service::work> work_ptr;
 
   /// The pool of io_services.
-  vector<IOServicePtr> io_services_;
+  vector<boost::asio::io_service> io_services_;
 
   /// The work that keeps the io_services running.
-  vector<work_ptr> work_;
+  vector<boost::asio::io_service::work> work_;
 
   int next_io_service_;
 
