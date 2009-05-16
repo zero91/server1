@@ -44,6 +44,5 @@ using namespace __gnu_cxx;
 
 #include "buffer.hpp"
 #include "hash.hpp"
-#include "object.hpp"
 #include "closure.hpp"
 #endif // BASE_H_

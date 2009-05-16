@@ -22,6 +22,9 @@ struct hash {
 };
 #else
 namespace __gnu_cxx {
+template<> struct hash<void*> {
+  size_t operator()(void* x) const { return reinterpret_cast<size_t>(x); }
+};
 template<> struct hash<int64> {
   size_t operator()(int64 x) const { return static_cast<size_t>(x); }
 };
@@ -40,6 +43,9 @@ template<> struct hash<StringPiece> {
   size_t operator()(const StringPiece &x) const {
     return static_cast<size_t>(hash8(x));
   }
+};
+template<class T> struct hash<T*> {
+    size_t operator()(T *x) const { return reinterpret_cast<size_t>(x); }
 };
 }
 #endif

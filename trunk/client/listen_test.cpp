@@ -16,7 +16,7 @@ DECLARE_int32(v);
 class EchoService2Impl : public Hello::EchoService2 {
  public:
  public:
-  EchoService2Impl(shared_ptr<PCQueue<bool> > pcqueue) : called_(0), cnt_(0), pcqueue_(pcqueue) {
+  EchoService2Impl(boost::shared_ptr<PCQueue<bool> > pcqueue) : called_(0), cnt_(0), pcqueue_(pcqueue) {
   }
   virtual void Echo1(google::protobuf::RpcController *controller,
                     const Hello::EchoRequest *request,
@@ -40,7 +40,6 @@ class EchoService2Impl : public Hello::EchoService2 {
                response2,
                done2);
     connection_ = dynamic_cast<Connection*>(controller);
-    VLOG(2) << "connection use count: " << connection_->shared_from_this().use_count() - 1;
     VLOG(2) << "CallEcho2 request: " << request2->question();
   }
   virtual void Echo2(google::protobuf::RpcController *controller,
@@ -68,7 +67,7 @@ class EchoService2Impl : public Hello::EchoService2 {
     return called_;
   }
  private:
-  shared_ptr<PCQueue<bool> > pcqueue_;
+  boost::shared_ptr<PCQueue<bool> > pcqueue_;
   Connection *connection_;
   int cnt_;
   int called_;
@@ -88,16 +87,13 @@ class ListenTest : public testing::Test {
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection(FLAGS_server, FLAGS_port));
     client_connection_->set_name("Client");
-    VLOG(2) << "client connection, use count: " << client_connection_.use_count();
     client_stub_.reset(new Hello::EchoService2::Stub(client_connection_.get()));
     pcqueue_.reset(new PCQueue<bool>);
     echo_service_.reset(new EchoService2Impl(pcqueue_));
     VLOG(2) << "Register service";
     server_connection_->RegisterService(echo_service_.get());
-    VLOG(2) << "client connection, use count: " << client_connection_.use_count();
     client_connection_->RegisterService(echo_service_.get());
-    VLOG(2) << "client connection, use count: " << client_connection_.use_count();
-    server_->Listen(FLAGS_server, FLAGS_port, server_connection_);
+    server_->Listen(FLAGS_server, FLAGS_port, server_connection_.get());
     CHECK(!client_connection_->IsConnected());
     CHECK(client_connection_->Connect());
   }
@@ -109,7 +105,7 @@ class ListenTest : public testing::Test {
     server_.reset();
     client_stub_.reset();
     VLOG(2) << "Reset client connection";
-    VLOG(2) << "client connection, use count: " << client_connection_.use_count();
+    client_connection_->Disconnect();
     client_connection_.reset();
     pcqueue_.reset();
     echo_service_.reset();
@@ -120,9 +116,9 @@ class ListenTest : public testing::Test {
   }
 
   void ClientCallMultiThreadDone(
-      shared_ptr<RpcController> controller,
-      shared_ptr<Hello::EchoRequest> request,
-      shared_ptr<Hello::EchoResponse> response) {
+      boost::shared_ptr<RpcController> controller,
+      boost::shared_ptr<Hello::EchoRequest> request,
+      boost::shared_ptr<Hello::EchoResponse> response) {
     VLOG(2) << "CallEcho response: " << response->text();
     VLOG(2) << "ClientCallMultiThreadDone called";
     CHECK_EQ("server->" + request->question(), response->text());
@@ -130,11 +126,10 @@ class ListenTest : public testing::Test {
 
   void ClientThreadRun() {
     static int i = 0;
-    shared_ptr<Hello::EchoRequest> request(new Hello::EchoRequest);
-    shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
+    boost::shared_ptr<Hello::EchoRequest> request(new Hello::EchoRequest);
+    boost::shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
     request->set_question("client question" + boost::lexical_cast<string>(i++));
-    stringstream os;
-    shared_ptr<RpcController> controller(new RpcController);
+    boost::shared_ptr<RpcController> controller(new RpcController);
     client_stub_->Echo1(controller.get(),
                        request.get(),
                        response.get(),
@@ -144,13 +139,13 @@ class ListenTest : public testing::Test {
     VLOG(2) << "CallEcho request: " << request->question();
   }
  protected:
-  shared_ptr<ProtobufConnection> server_connection_;
-  shared_ptr<Server> server_;
-  shared_ptr<ClientConnection> client_connection_;
+  boost::scoped_ptr<ProtobufConnection> server_connection_;
+  boost::scoped_ptr<Server> server_;
+  boost::scoped_ptr<ClientConnection> client_connection_;
   RpcController listener_controller_;
-  shared_ptr<Hello::EchoService2::Stub> client_stub_;
-  shared_ptr<PCQueue<bool> > pcqueue_;
-  shared_ptr<EchoService2Impl> echo_service_;
+  boost::scoped_ptr<Hello::EchoService2::Stub> client_stub_;
+  boost::shared_ptr<PCQueue<bool> > pcqueue_;
+  boost::scoped_ptr<EchoService2Impl> echo_service_;
 };
 /*
 TEST_F(ListenTest, Test1) {
@@ -176,14 +171,10 @@ TEST_F(ListenTest, Test1) {
 TEST_F(ListenTest, MultiThreadTest1) {
   CHECK(client_connection_->Connect());
   // Create a pool of threads to run all of the io_services.
-  vector<shared_ptr<boost::thread> > threads;
-  VLOG(2) << "client connection, use count: " << client_connection_.use_count();
+  vector<boost::shared_ptr<boost::thread> > threads;
   for (size_t i = 0; i < FLAGS_num_threads; ++i) {
-    VLOG(2) << "client connection, use count: " << client_connection_.use_count();
     ClientThreadRun();
-    VLOG(2) << "client connection, use count: " << client_connection_.use_count();
   }
-  VLOG(2) << "client connection, use count: " << client_connection_.use_count();
   int cnt = 0;
   while (pcqueue_->Pop()) {
     ++cnt;
@@ -192,10 +183,8 @@ TEST_F(ListenTest, MultiThreadTest1) {
       break;
     }
   }
-  VLOG(2) << "client connection, use count: " << client_connection_.use_count();
-  VLOG(2) << "Close client connection";
   client_connection_->Disconnect();
-  VLOG(2) << "client connection, use count: " << client_connection_.use_count();
+  VLOG(2) << "Close client connection";
   CHECK_EQ(echo_service_->called(), FLAGS_num_threads);
 }
 int main(int argc, char **argv) {

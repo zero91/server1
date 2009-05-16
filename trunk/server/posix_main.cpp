@@ -22,18 +22,26 @@ class EchoService2ServerImpl : public Hello::EchoService2 {
                      const Hello::EchoRequest *request,
                      Hello::EchoResponse *response,
                      google::protobuf::Closure *done) {
-    LOG(INFO) << "Echo ServiceImpl called";
+    LOG(INFO) << "CallEcho1 request: " << request->question();
     response->set_echoed(1);
     response->set_text("server->" + request->question());
     response->set_close(false);
+    LOG(INFO) << "CallEcho1 response: " << response->text();
+    string callecho2_question = "server question" + boost::lexical_cast<string>(i_++);
+    VLOG(2) << "CallEcho2 tmp request: " << callecho2_question;
+    VLOG(2) << "done Run";
     done->Run();
+    VLOG(2) << "done Done";
     connection_ = dynamic_cast<Connection*>(controller);
-    VLOG(2) << "connection use count: " << connection_->shared_from_this().use_count() - 1;
+    if (!connection_->IsConnected()) {
+      return;
+    }
+    // CHECK(connection_->IsConnected());
     EchoService2::Stub stub(
         dynamic_cast<google::protobuf::RpcChannel*>(controller));
     Hello::EchoRequest2  *request2 = new Hello::EchoRequest2;
     Hello::EchoResponse2 *response2 = new Hello::EchoResponse2;
-    request2->set_question("server question" + boost::lexical_cast<string>(i_++));
+    request2->set_question(callecho2_question);
     RpcController controller2;
     google::protobuf::Closure *done2 = google::protobuf::NewCallback(
         this, &EchoService2ServerImpl::CallEcho2Done, request2, response2);
@@ -41,7 +49,6 @@ class EchoService2ServerImpl : public Hello::EchoService2 {
                request2,
                response2,
                done2);
-    VLOG(2) << "connection use count: " << connection_->shared_from_this().use_count() - 1;
     VLOG(2) << "CallEcho2 request: " << request2->question();
   }
   void CallEcho2Done(Hello::EchoRequest2 *request,
@@ -65,28 +72,33 @@ int main(int argc, char* argv[]) {
   FLAGS_logtostderr = true;
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  shared_ptr<ProtobufConnection> server_connection;
-  shared_ptr<Server> server;
+  sigset_t mask;
+  sigfillset(&mask); /* Mask all allowed signals */
+  int rc = pthread_sigmask(SIG_SETMASK, &mask, NULL);
+  VLOG(2) << "Signal masked" << rc;
+  scoped_ptr<ProtobufConnection> server_connection;
+  scoped_ptr<Server> server;
   VLOG(2) << "New server connection";
   server_connection.reset(new ProtobufConnection);
   server.reset(new Server(FLAGS_num_threads, 1));
   EchoService2ServerImpl echo_service;
   server_connection->RegisterService(&echo_service);
-  server->Listen(FLAGS_address, FLAGS_port, server_connection);
+  server->Listen(FLAGS_address, FLAGS_port, server_connection.get());
   sigset_t new_mask;
   sigfillset(&new_mask);
   sigset_t old_mask;
-  pthread_sigmask(SIG_BLOCK, &new_mask, &old_mask);
-  pthread_sigmask(SIG_SETMASK, &old_mask, 0);
-  // Wait for signal indicating time to shut down.
   sigset_t wait_mask;
   sigemptyset(&wait_mask);
   sigaddset(&wait_mask, SIGINT);
   sigaddset(&wait_mask, SIGQUIT);
   sigaddset(&wait_mask, SIGTERM);
+  pthread_sigmask(SIG_BLOCK, &new_mask, &old_mask);
+  pthread_sigmask(SIG_SETMASK, &old_mask, 0);
+  // Wait for signal indicating time to shut down.
   pthread_sigmask(SIG_BLOCK, &wait_mask, 0);
   int sig = 0;
   sigwait(&wait_mask, &sig);
+  VLOG(2) << "Catch signal" << sig;
   server->Stop();
   return 0;
 }

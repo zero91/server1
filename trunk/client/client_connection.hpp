@@ -2,49 +2,52 @@
 #define CLIENT_CONNECTION_HPP
 #include "server/protobuf_connection.hpp"
 #include "server/io_service_pool.hpp"
-class ClientConnection : public ProtobufConnection {
+class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
-    : ProtobufConnection(), io_service_pool_(1), server_(server), port_(port) {
+    : connection_(NULL), io_service_pool_("ClientIOService", 1), server_(server), port_(port) {
       VLOG(2) << "Constructor client connection";
-      set_allocator(&allocator_);
+  }
+  virtual bool RegisterService(google::protobuf::Service *service) {
+    return connection_template_.RegisterService(service);
+  }
+  virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
+                          google::protobuf::RpcController *controller,
+                          const google::protobuf::Message *request,
+                          google::protobuf::Message *response,
+                          google::protobuf::Closure *done) {
+    if (connection_) {
+      connection_->CallMethod(method, controller, request, response, done);
+    } else {
+      LOG(WARNING) << "Callmethod but connection is null";
+    }
   }
 
-  bool Connect() {
-    if (IsConnected()) {
-      LOG(WARNING) << "Connect but IsConnected";
-      return true;
-    }
-    io_service_pool_.Start();
-    boost::asio::ip::tcp::resolver::query query(server_, port_);
-    boost::asio::ip::tcp::resolver resolver(io_service_pool_.get_io_service());
-    boost::asio::ip::tcp::resolver::iterator endpoint_iterator(
-        resolver.resolve(query));
-    boost::asio::ip::tcp::resolver::iterator end;
-    // Try each endpoint until we successfully establish a connection.
-    boost::system::error_code error = boost::asio::error::host_not_found;
-    socket_.reset(
-        new boost::asio::ip::tcp::socket(io_service_pool_.get_io_service()));
-    while (error && endpoint_iterator != end) {
-      socket_->close();
-      socket_->connect(*endpoint_iterator++, error);
-    }
-    if (error) {
-      LOG(WARNING) << ":fail to connect, error:"  << error.message();
-      return false;
-    }
-    this->set_socket(socket_.get());
-    return true;
+  void set_name(const string &name) {
+    connection_template_.set_name(name);
   }
+  const string name() {
+    return connection_template_.name();
+  }
+  bool IsConnected() {
+    return connection_ && connection_->IsConnected();
+  }
+  bool Connect();
   void Disconnect() {
-    Close();
+    if (connection_) {
+      connection_->Close();
+    }
     io_service_pool_.Stop();
   }
+  ~ClientConnection() {
+    VLOG(2) << "~ClientConnection";
+  }
  private:
+  bool ConnectionClose();
+  ProtobufConnection *connection_;
+  ProtobufConnection connection_template_;
   IOServicePool io_service_pool_;
   string server_, port_;
-  Allocator allocator_;
-  scoped_ptr<boost::asio::ip::tcp::socket> socket_;
 };
 
 class RpcController : public google::protobuf::RpcController {

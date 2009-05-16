@@ -9,6 +9,8 @@
 #include "server/connection.hpp"
 #include "server/io_service_pool.hpp"
 #include "thread/threadpool.hpp"
+
+class AcceptorHandler;
 // The top-level class of the Server.
 class Server
   : private boost::noncopyable {
@@ -17,21 +19,42 @@ public:
   /// serve up files from the given directory.
   explicit Server(int io_service_number,
                   int worker_threads);
+  ~Server();
 
   void Listen(const string &address, const string &port,
-              ConnectionPtr connection_template);
+              Connection* connection_template);
 
   /// Stop the Server.
   void Stop();
 private:
+  struct AcceptorResource {
+    boost::asio::ip::tcp::acceptor *acceptor;
+    boost::asio::ip::tcp::socket * socket;
+    AcceptorResource(boost::asio::ip::tcp::acceptor *in_acceptor,
+                     boost::asio::ip::tcp::socket *in_socket)
+      : acceptor(in_acceptor), socket(in_socket) {
+    }
+  };
+  typedef hash_map<string, AcceptorResource> AcceptorTable;
+  void ReleaseAcceptor(const string &host);
+
+  void RemoveConnection(Connection *connection);
+  typedef hash_set<Connection*> ConnectionTable;
   // Handle completion of an asynchronous accept operation.
-  void HandleAccept(const boost::system::error_code& e);
+  void HandleAccept(const boost::system::error_code& e,
+                    const string &host,
+                    boost::asio::ip::tcp::socket *socket,
+                    Connection *new_connection);
 
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
   ThreadPool threadpool_;
-  Allocator allocator_;
-  boost::mutex acceptor_table_mutex_;
+  friend class AcceptorHandler;
+  ConnectionTable connection_table_;
+  boost::mutex connection_table_mutex_;
+
   AcceptorTable acceptor_table_;
+  boost::mutex acceptor_table_mutex_;
+  bool is_running_;
 };
 #endif // NET2_SERVER_HPP

@@ -14,9 +14,9 @@ class ThreadPoolTest : public testing::Test {
 };
 
 TEST_F(ThreadPoolTest, Test1) {
-  shared_ptr<ThreadPool> p(new ThreadPool(kPoolSize));
+  ThreadPool p("Test", kPoolSize);
   for (int k = 0; k < 1000; ++k) {
-    p->Start();
+    p.Start();
     int item_size = kPoolSize * (rand() % 10 + 1);
     VLOG(2) << "item size: " << item_size;
     vector<int> v;
@@ -24,9 +24,9 @@ TEST_F(ThreadPoolTest, Test1) {
     for (int i = 0; i < item_size; ++i) {
       boost::function0<void> handler = boost::bind(
           &ThreadPoolTest::Inc, this, &v[i]);
-      p->PushTask(handler);
+      p.PushTask(handler);
     }
-    p->Stop();
+    p.Stop();
     for (int i = 0; i < item_size; ++i) {
       EXPECT_EQ(v[i], 0xbeef);
     }

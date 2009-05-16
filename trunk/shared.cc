@@ -1,5 +1,6 @@
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/shared_ptr.hpp>
+#include <boost/scoped_ptr.hpp>
 #include <boost/function.hpp>
 #include <boost/bind.hpp>
 
@@ -7,7 +8,7 @@ struct Base0 : public boost::function1<void, boost::function0<void> >, boost::en
   virtual void Run() {
     printf("run base0");
   }
-  ~Base0() {
+  virtual ~Base0() {
     printf ("~Base0");
   }
   Base0() {
@@ -17,22 +18,41 @@ struct Base0 : public boost::function1<void, boost::function0<void> >, boost::en
 
 template <typename A>
 struct Base1 : public Base0, public boost::enable_shared_from_this<Base1<A> > {
+  ~Base1() {
+    printf ("~Base1");
+  }
+  Base1() {
+    printf("Base1");
+  }
   void Run() {
     printf ("run base1");
   }
 };
-
-template <typename C>
-struct Base2 : public Base1<C>, public boost::enable_shared_from_this<Base2<C> > {
-  void Run() {
-    printf("run base2");
-  }
-};
-
 struct Base3 : public boost::enable_shared_from_this<Base3> {
+  ~Base3() {
+    printf ("~Base3");
+  }
+  Base3() {
+    printf("Base3");
+  }
   void Run() {
     printf("run base3");
   }
+};
+
+
+template <typename C>
+struct Base2 : private Base1<C>, public boost::enable_shared_from_this<Base2<C> > {
+  ~Base2() {
+    printf ("~Base2");
+  }
+  Base2() {
+    printf("Base2");
+  }
+  void Run() {
+    printf("run base2");
+  }
+  Base3 b3;
 };
 
 int main(int argc, char **argv) {
@@ -49,8 +69,8 @@ int main(int argc, char **argv) {
       new boost::function0<void>(boost::bind(&Base0::Run, b0->shared_from_this())));
   b0->Run();
   */
-  boost::shared_ptr<Base0> b0;
-  b0.reset(new Base0);
-  printf("%d,%d\n", b0.use_count(), b0->shared_from_this().use_count());
-  b0.reset();
+  boost::scoped_ptr<Base2<int> > b2(new Base2<int>);
+  Base2<int> * b22 = b2.get();
+  b2.reset();
+  b22->Run();
 }

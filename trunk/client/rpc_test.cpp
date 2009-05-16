@@ -40,7 +40,7 @@ class EchoTest : public testing::Test {
     client_connection_.reset(new ClientConnection(
         FLAGS_server, FLAGS_port));
     stub_.reset(new Hello::EchoService::Stub(client_connection_.get()));
-    server_->Listen(FLAGS_server, FLAGS_port, server_connection_);
+    server_->Listen(FLAGS_server, FLAGS_port, server_connection_.get());
     VLOG(2) << "Register service";
     server_connection_->RegisterService(&echo_service_);
     CHECK(!client_connection_->IsConnected());
@@ -63,12 +63,12 @@ class EchoTest : public testing::Test {
     LOG(INFO) << "Call done is called";
   }
  protected:
-  shared_ptr<ProtobufConnection> server_connection_;
-  shared_ptr<ClientConnection> client_connection_;
-  shared_ptr<Server> server_;
+  boost::scoped_ptr<ProtobufConnection> server_connection_;
+  boost::scoped_ptr<ClientConnection> client_connection_;
+  boost::scoped_ptr<Server> server_;
   EchoServiceImpl echo_service_;
-  shared_ptr<Hello::EchoService::Stub> stub_;
-  shared_ptr<google::protobuf::Closure> done_;
+  boost::scoped_ptr<Hello::EchoService::Stub> stub_;
+  boost::scoped_ptr<google::protobuf::Closure> done_;
 };
 
 TEST_F(EchoTest, Test1) {

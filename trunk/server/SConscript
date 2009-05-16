@@ -21,3 +21,6 @@ server_env.Program(
 server_env.Program(
   target = 'client0',
   source = ['posix_client.cpp'])
+
+Test(env, 'io_service_pool')
+Test(env, 'shared_const_buffers')

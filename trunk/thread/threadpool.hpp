@@ -7,38 +7,48 @@
 #include <glog/logging.h>
 class ThreadPool : public boost::noncopyable, public Executor {
  public:
-  ThreadPool(int size) : size_(size) {
+  ThreadPool(const string name, int size) : name_(name), size_(size) {
   }
   void Start() {
-    LOG(INFO) << "Start threadpool";
+    LOG(INFO) << name() << " Start.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
     if (threads_.size() > 0) {
-      LOG(INFO) << "ThreadPool Running";
+      LOG(INFO) << name() << " Running.";
       return;
     }
-    threads_.reserve(size_);
     for (int i = 0; i < size_; ++i) {
-      threads_.push_back(boost::thread(&ThreadPool::Loop, this, i));
+      boost::shared_ptr<boost::thread> t(new boost::thread(&ThreadPool::Loop, this, i));
+      threads_.push_back(t);
     }
   }
+  bool IsRunning() {
+    return !threads_.empty();
+  }
+  const string name() const {
+    return name_;
+  }
   void Stop() {
-    LOG(INFO) << "Stop threadpool";
+    LOG(INFO) << name() << " Stop.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
     if (threads_.empty()) {
-      LOG(INFO) << "ThreadPool already stop";
+      LOG(INFO) << name() << " already stop.";
       return;
     }
     for (int i = 0; i < threads_.size(); ++i) {
-      PushTask(boost::function0<void>());
+      pcqueue_.Push(boost::function0<void>());
     }
     for (int i = 0; i < threads_.size(); ++i) {
-      threads_[i].join();
-      VLOG(2) << "Join thread: " << i;
+      threads_[i]->join();
+      VLOG(2) << name() << " join thread: " << i;
     }
     threads_.clear();
   }
   void PushTask(const boost::function0<void> &t) {
-    VLOG(2) << "PushTask";
+    if (t.empty()) {
+      LOG(WARNING) << name() <<  " can't push null task.";
+      return;
+    }
+    VLOG(2) << name() << " push task.";
     pcqueue_.Push(t);
   }
   void Run(const boost::function0<void> &f) {
@@ -46,21 +56,31 @@ class ThreadPool : public boost::noncopyable, public Executor {
   }
  private:
   void Loop(int i) {
-    VLOG(2) << "Thread pool worker " << i << " Start";
+    sigset_t mask;
+    sigfillset(&mask); /* Mask all allowed signals */
+    int rc = pthread_sigmask(SIG_SETMASK, &mask, NULL);
+    VLOG(2) << name() << " worker " << i << " start.";
     while (1) {
-      VLOG(2) << "Thread pool worker " << i << " wait task";
-      boost::function0<void> h = pcqueue_.Pop();
-      if (h.empty()) {
-        VLOG(2) << "Thread pool worker " << i << " get empty task, so break";
-        break;
+      try {
+        VLOG(2) << name() << " worker " << i << " wait task.";
+        boost::function0<void> h = pcqueue_.Pop();
+        if (h.empty()) {
+          VLOG(2) << name() << " worker " << i << " get empty task, so break.";
+          break;
+        }
+        VLOG(2) << name() << " woker " << i << " running task";
+        h();
+        VLOG(2) << name() << " woker " << i << " finish task";
+      } catch (std::exception e) {
+        VLOG(2) << name() << " woker " << i << " catch exception " << e.what();
       }
-      h();
     }
-    VLOG(2) << "Thread pool worker " << i << " Stop";
+    VLOG(2) << name() << " woker " << i << " stop";
   }
-  vector<boost::thread> threads_;
+  vector<boost::shared_ptr<boost::thread> > threads_;
   int size_;
   boost::mutex run_mutex_;
   PCQueue<boost::function0<void> > pcqueue_;
+  string name_;
 };
 #endif  // THREAD_POOL_HPP_

@@ -26,7 +26,7 @@ class PCQueue : public boost::noncopyable, public boost::enable_shared_from_this
   }
 
  private:
-  list<Type> queue_;
+  deque<Type> queue_;
   boost::mutex mutex_;
   boost::condition queue_not_empty_;
 };

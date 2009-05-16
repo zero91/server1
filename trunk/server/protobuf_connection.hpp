@@ -85,9 +85,9 @@ private:
   ProtobufLineFormat::MetaData meta_;
 };
 
-class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDualChannel {
+class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtual public FullDualChannel {
  private:
-   typedef hash_map<uint64, boost::function2<void, shared_ptr<const ProtobufDecoder>,
+   typedef hash_map<uint64, boost::function2<void, boost::shared_ptr<const ProtobufDecoder>,
           ProtobufConnection*> > HandlerTable;
  public:
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
@@ -97,7 +97,7 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDu
 
   ~ProtobufConnection();
 
-  ConnectionPtr Clone();
+  ProtobufConnection* Clone();
 
   // Non thread safe.
   bool RegisterService(google::protobuf::Service *service);
@@ -108,13 +108,13 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, public FullDu
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done);
  private:
-  ProtobufConnection(shared_ptr<HandlerTable> handler_table) : ConnectionImpl<ProtobufDecoder>(),
+  ProtobufConnection(boost::shared_ptr<HandlerTable> handler_table) : ConnectionImpl<ProtobufDecoder>(),
       handler_table_(handler_table) {
     VLOG(2) << "New protobuf connection" << this;
   }
 
-  virtual void Handle(shared_ptr<const ProtobufDecoder> decoder);
-  shared_ptr<HandlerTable> handler_table_;
+  virtual void Handle(boost::shared_ptr<const ProtobufDecoder> decoder);
+  boost::shared_ptr<HandlerTable> handler_table_;
   // The response handler table is per connection.
   HandlerTable response_handler_table_;
   boost::mutex response_handler_table_mutex_;

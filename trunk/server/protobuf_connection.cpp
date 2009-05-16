@@ -18,7 +18,7 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
 };
 ProtobufConnection::~ProtobufConnection() {
   VLOG(2) << name() << " : " << "Distroy protobuf connection" << this;
-  shared_ptr<ProtobufDecoder> decoder;
+  boost::shared_ptr<ProtobufDecoder> decoder;
   for (HandlerTable::iterator it = response_handler_table_.begin();
        it != response_handler_table_.end(); ++it) {
     VLOG(2) << name() << " : " << "Call response handler in destructor";
@@ -34,12 +34,8 @@ void ConnectionImpl<ProtobufDecoder>::InternalPushData<EncodeData>(
     LOG(WARNING) << "Push NULL data!";
     return;
   }
-  if (duplex_[incoming_index_] == NULL) {
-    duplex_[incoming_index_].reset(new vector<SharedConstBuffer>);
-  }
-  vector<SharedConstBuffer> *writer = duplex_[incoming_index_].get();
-  writer->push_back(SharedConstBuffer(data.first));
-  writer->push_back(SharedConstBuffer(data.second));
+  incoming()->push(data.first);
+  incoming()->push(data.second);
 }
 
 boost::tribool ProtobufDecoder::Consume(char input) {
@@ -102,12 +98,11 @@ boost::tribool ProtobufDecoder::Consume(char input) {
 
 static void CallServiceMethodDone(
     ProtobufConnection *connection,
-    shared_ptr<const ProtobufDecoder> decoder,
-    shared_ptr<google::protobuf::Message> resource,
-    shared_ptr<google::protobuf::Message> response) {
+    boost::shared_ptr<const ProtobufDecoder> decoder,
+    boost::shared_ptr<google::protobuf::Message> resource,
+    boost::shared_ptr<google::protobuf::Message> response) {
   VLOG(2) << connection->name() << " : " << "HandleService->CallServiceMethodDone()";
   CHECK(decoder.get() != NULL);
-  VLOG(2) << connection->name() << " : " << "use count: " << connection->shared_from_this().use_count() - 1;
   const ProtobufLineFormat::MetaData &request_meta = decoder->meta();
   ProtobufLineFormat::MetaData response_meta;
   response_meta.set_type(ProtobufLineFormat::MetaData::RESPONSE);
@@ -123,12 +118,11 @@ static void HandleService(
     const google::protobuf::MethodDescriptor *method,
     const google::protobuf::Message *request_prototype,
     const google::protobuf::Message *response_prototype,
-    shared_ptr<const ProtobufDecoder> decoder,
+    boost::shared_ptr<const ProtobufDecoder> decoder,
     ProtobufConnection *connection) {
   VLOG(2) << connection->name() << " : " <<  "HandleService: " << method->full_name();
-  VLOG(2) << connection->name() << " : " << "use count: " << connection->shared_from_this().use_count() - 1;
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  shared_ptr<google::protobuf::Message> request(request_prototype->New());
+  boost::shared_ptr<google::protobuf::Message> request(request_prototype->New());
   const string &content = decoder->meta().content();
   VLOG(2) << connection->name() << " : " << "content size: " << content.size();
   if (!request->ParseFromArray(
@@ -137,7 +131,7 @@ static void HandleService(
     LOG(WARNING) << meta.DebugString() << " invalid format";
     return;
   }
-  shared_ptr<google::protobuf::Message> response(response_prototype->New());
+  boost::shared_ptr<google::protobuf::Message> response(response_prototype->New());
   google::protobuf::Closure *done = NewClosure(
       boost::bind(CallServiceMethodDone,
                   connection,
@@ -173,11 +167,9 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
   }
 }
 
-void ProtobufConnection::Handle(shared_ptr<const ProtobufDecoder> decoder) {
+void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  VLOG(2) << name() << " : " << "use count: " << shared_from_this().use_count() - 1;
   VLOG(2) << name() << " : " << "Handle request: " << meta.DebugString();
-  VLOG(2) << name() << " : " << "use count: " << shared_from_this().use_count() - 1;
   HandlerTable::iterator it = handler_table_->find(meta.identify());
   if (it != handler_table_->end()) {
     it->second(decoder, this);
@@ -197,17 +189,16 @@ void ProtobufConnection::Handle(shared_ptr<const ProtobufDecoder> decoder) {
   handler(decoder, this);
 }
 
-ConnectionPtr ProtobufConnection::Clone() {
+ProtobufConnection* ProtobufConnection::Clone() {
   static int i = 0;
-  ConnectionPtr connection(new ProtobufConnection(
-      this->handler_table_));
+  ProtobufConnection* connection = new ProtobufConnection(this->handler_table_);
   connection->set_name(this->name() + boost::lexical_cast<string>(i++));
-  VLOG(2) << name() << ":" << "Clone protobufconnection: " << connection.get() << " -> " << connection->name();
+  VLOG(2) << "Clone protobufconnection: " << name() << " -> " << connection->name();
   return connection;
 }
 
 static void CallMethodCallback(
-    shared_ptr<const ProtobufDecoder> decoder,
+    boost::shared_ptr<const ProtobufDecoder> decoder,
     ProtobufConnection *connection,
     google::protobuf::RpcController *controller,
     google::protobuf::Message *response,
@@ -237,31 +228,28 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
                   const google::protobuf::Message *request,
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done) {
-  VLOG(2) << name() << " : " << "Call Method connection use count: " << shared_from_this().use_count() - 1;
+  VLOG(2) << name() << " : " << "Call Method connection";
   uint64 request_identify = hash8(method->full_name());
   uint64 response_identify = hash8(response->GetDescriptor()->full_name());
-  boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-  HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
-  while (it != response_handler_table_.end()) {
-    it = response_handler_table_.find(++response_identify);
-  }
   ProtobufLineFormat::MetaData meta;
-  meta.set_identify(request_identify);
-  meta.set_type(ProtobufLineFormat::MetaData::REQUEST);
-  meta.set_response_identify(response_identify);
-  if (!request->AppendToString(meta.mutable_content())) {
-    LOG(WARNING) << "Fail to serialze request form method: "
-                 << method->full_name();
+  {
+    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
+    while (it != response_handler_table_.end()) {
+      it = response_handler_table_.find(++response_identify);
+    }
+    meta.set_identify(request_identify);
+    meta.set_type(ProtobufLineFormat::MetaData::REQUEST);
+    meta.set_response_identify(response_identify);
+    if (!request->AppendToString(meta.mutable_content())) {
+      LOG(WARNING) << "Fail to serialze request form method: "
+        << method->full_name();
+    }
+    response_handler_table_.insert(make_pair(
+        response_identify,
+        boost::bind(CallMethodCallback, _1, _2, controller, response, done)));
   }
-  VLOG(2) << name() << " : " << "Call Method connection use count: " << shared_from_this().use_count() - 1;
-  response_handler_table_.insert(make_pair(
-      response_identify,
-      boost::bind(CallMethodCallback, _1, _2, controller, response, done)));
-  VLOG(2) << name() << " : " << "EncodeMessage Call Method connection use count: " << shared_from_this().use_count() - 1;
   PushData(EncodeMessage(&meta));
-  VLOG(2) << name() << " : " << "ScheduleWrite Call Method connection use count: " << shared_from_this().use_count() - 1;
   ScheduleWrite();
-  VLOG(2) << name() << " : " << "ScheduleRead Call Method connection use count: " << shared_from_this().use_count() - 1;
   ScheduleRead();
-  VLOG(2) << name() << " : " << "Exit Call Method connection use count: " << shared_from_this().use_count() - 1;
 }
