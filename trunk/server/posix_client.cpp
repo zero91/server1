@@ -12,6 +12,7 @@
 DEFINE_string(address, "localhost","The address");
 DEFINE_string(port, "6789","The port");
 DEFINE_int32(num_threads, 4,"The thread size");
+DEFINE_int32(num_connections, 4, "The test server thread number");
 DECLARE_bool(logtostderr);
 DECLARE_int32(v);
 class EchoService2ClientImpl : public Hello::EchoService2 {
@@ -29,7 +30,7 @@ class EchoService2ClientImpl : public Hello::EchoService2 {
     done->Run();
     ++called_;
     VLOG(2) << "CallEcho2Done response:" << response->text() << called_;
-    pcqueue_->Push(called_ < FLAGS_num_threads);
+    pcqueue_->Push(true);
   }
   int called() const {
     return called_;
@@ -49,7 +50,7 @@ void ClientCallMultiThreadDone(
   VLOG(2) << "CallEcho1Response: " << response->text();
 }
 
-void ClientThreadRun(Hello::EchoService2::Stub *client_stub, int i) {
+void ClientThreadRun(boost::shared_ptr<Hello::EchoService2::Stub> client_stub, int i) {
   boost::shared_ptr<Hello::EchoRequest> request(new Hello::EchoRequest);
   boost::shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
   request->set_question("client question" + boost::lexical_cast<string>(i));
@@ -68,32 +69,35 @@ int main(int argc, char* argv[]) {
   FLAGS_logtostderr = true;
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  boost::scoped_ptr<ClientConnection> client_connection;
-  boost::scoped_ptr<Hello::EchoService2::Stub> client_stub;
   boost::shared_ptr<PCQueue<bool> > pcqueue(new PCQueue<bool>);
   boost::scoped_ptr<EchoService2ClientImpl> echo_service;
   echo_service.reset(new EchoService2ClientImpl(pcqueue));
-  VLOG(2) << "New client connection";
-  client_connection.reset(new ClientConnection(FLAGS_address, FLAGS_port));
-  VLOG(2) << "Register service";
-  client_connection->RegisterService(echo_service.get());
-  client_stub.reset(new Hello::EchoService2::Stub(client_connection.get()));
-  CHECK(client_connection->Connect());
-  // Create a pool of threads to run all of the io_services.
-  vector<boost::shared_ptr<boost::thread> > threads;
-  for (size_t i = 0; i < FLAGS_num_threads; ++i) {
-    ClientThreadRun(client_stub.get(), i);
+  ThreadPool pool("PosixClient", FLAGS_num_threads);
+  pool.Start();
+  vector<boost::shared_ptr<ClientConnection> > connections;
+  vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
+  for (int i = 0; i < FLAGS_num_connections; ++i) {
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_address, FLAGS_port));
+    r->RegisterService(echo_service.get());
+    connections.push_back(r);
+    CHECK(r->Connect());
+    boost::shared_ptr<Hello::EchoService2::Stub> s(new Hello::EchoService2::Stub(connections.back().get()));
+    stubs.push_back(s);
+    for (int j = 0; j < FLAGS_num_threads; ++j) {
+      pool.PushTask(boost::bind(ClientThreadRun, stubs.back(), i * FLAGS_num_connections + j));
+    }
   }
   int cnt = 0;
   while (pcqueue->Pop()) {
-    ++cnt;
-    VLOG(2) << "Get on pop" << cnt;
-    if (cnt == FLAGS_num_threads) {
+    LOG(WARNING) << "Get on pop" << cnt++;
+    if (cnt == FLAGS_num_threads * FLAGS_num_connections) {
       break;
     }
   }
   VLOG(0) << "Disconnect";
-  client_connection->Disconnect();
-  CHECK_EQ(echo_service->called(), FLAGS_num_threads);
+  pool.Stop();
+  for (int i = 0; i < FLAGS_num_connections; ++i) {
+    connections[i]->Disconnect();
+  }
   return 0;
 }

@@ -19,9 +19,10 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
 ProtobufConnection::~ProtobufConnection() {
   VLOG(2) << name() << " : " << "Distroy protobuf connection" << this;
   boost::shared_ptr<ProtobufDecoder> decoder;
+  int i = 0;
   for (HandlerTable::iterator it = response_handler_table_.begin();
        it != response_handler_table_.end(); ++it) {
-    VLOG(2) << name() << " : " << "Call response handler in destructor";
+    LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " in destructor NO " << ++i;
     it->second(decoder, this);
   }
 }
@@ -185,6 +186,7 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     }
     handler = it->second;
     response_handler_table_.erase(it);
+    VLOG(2) << name() << " Remove: " << it->first << " from response handler table, size: " << response_handler_table_.size();
   }
   handler(decoder, this);
 }
@@ -236,7 +238,10 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
     HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
     while (it != response_handler_table_.end()) {
-      it = response_handler_table_.find(++response_identify);
+      static int seq = 1;
+      ++seq;
+      response_identify += seq;
+      it = response_handler_table_.find(response_identify);
     }
     meta.set_identify(request_identify);
     meta.set_type(ProtobufLineFormat::MetaData::REQUEST);
@@ -248,6 +253,7 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
     response_handler_table_.insert(make_pair(
         response_identify,
         boost::bind(CallMethodCallback, _1, _2, controller, response, done)));
+    VLOG(2) << name() << " Insert: " << response_identify << " to response handler table, size: " << response_handler_table_.size();
   }
   PushData(EncodeMessage(&meta));
   ScheduleWrite();

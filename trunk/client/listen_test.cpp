@@ -10,6 +10,7 @@
 DEFINE_string(server, "localhost", "The test server");
 DEFINE_string(port, "6789", "The test server");
 DEFINE_int32(num_threads, 4, "The test server thread number");
+DEFINE_int32(num_connections, 4, "The test server thread number");
 DECLARE_bool(logtostderr);
 DECLARE_int32(v);
 
@@ -54,14 +55,16 @@ class EchoService2Impl : public Hello::EchoService2 {
   }
   void CallEcho2Done(Hello::EchoRequest2 *request,
                      Hello::EchoResponse2 *response) {
+    static int cnt = 0;
     if (!response->text().empty()) {
       CHECK_EQ("client->" + request->question(), response->text());
     }
     ++called_;
-    VLOG(2) << "CallEcho2 response:" << response->text();
+    LOG(INFO) << "CallEcho2 response:" << response->text();
     delete response;
     delete request;
-    pcqueue_->Push(called_ < FLAGS_num_threads);
+    pcqueue_->Push(true);
+    LOG(INFO) << "PCQueue push: " <<  called_;
   }
   int called() const {
     return called_;
@@ -124,13 +127,13 @@ class ListenTest : public testing::Test {
     CHECK_EQ("server->" + request->question(), response->text());
   }
 
-  void ClientThreadRun() {
+  void ClientThreadRun(boost::shared_ptr<Hello::EchoService2::Stub> client_stub) {
     static int i = 0;
     boost::shared_ptr<Hello::EchoRequest> request(new Hello::EchoRequest);
     boost::shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
     request->set_question("client question" + boost::lexical_cast<string>(i++));
     boost::shared_ptr<RpcController> controller(new RpcController);
-    client_stub_->Echo1(controller.get(),
+    client_stub->Echo1(controller.get(),
                        request.get(),
                        response.get(),
                        NewClosure(boost::bind(
@@ -143,11 +146,10 @@ class ListenTest : public testing::Test {
   boost::scoped_ptr<Server> server_;
   boost::scoped_ptr<ClientConnection> client_connection_;
   RpcController listener_controller_;
-  boost::scoped_ptr<Hello::EchoService2::Stub> client_stub_;
+  boost::shared_ptr<Hello::EchoService2::Stub> client_stub_;
   boost::shared_ptr<PCQueue<bool> > pcqueue_;
   boost::scoped_ptr<EchoService2Impl> echo_service_;
 };
-/*
 TEST_F(ListenTest, Test1) {
   Hello::EchoRequest request;
   Hello::EchoResponse response;
@@ -158,22 +160,17 @@ TEST_F(ListenTest, Test1) {
                       &response,
                       NewClosure(boost::bind(
                           &ListenTest::ClientCallDone, this)));
-  VLOG(2) << response.text() << " wait for server terminate";
-  shared_ptr<boost::thread> t(new boost::thread(
-      boost::bind(&boost::asio::io_service::run, client_io_service_)));
   pcqueue_->Pop();
-  client_io_service_->stop();
+  client_connection_->Disconnect();
   CHECK_EQ("server->" + request.question(), response.text());
   CHECK_EQ(echo_service_->called(), 1);
 }
-*/
-
 TEST_F(ListenTest, MultiThreadTest1) {
   CHECK(client_connection_->Connect());
   // Create a pool of threads to run all of the io_services.
   vector<boost::shared_ptr<boost::thread> > threads;
   for (size_t i = 0; i < FLAGS_num_threads; ++i) {
-    ClientThreadRun();
+    boost::thread t(boost::thread(&ListenTest::ClientThreadRun, this, client_stub_));
   }
   int cnt = 0;
   while (pcqueue_->Pop()) {
@@ -187,6 +184,37 @@ TEST_F(ListenTest, MultiThreadTest1) {
   VLOG(2) << "Close client connection";
   CHECK_EQ(echo_service_->called(), FLAGS_num_threads);
 }
+
+TEST_F(ListenTest, MultiThreadMultConnectionTest1) {
+  ThreadPool pool("Test", FLAGS_num_threads);
+  pool.Start();
+  vector<boost::shared_ptr<ClientConnection> > connections;
+  vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
+  for (int i = 0; i < FLAGS_num_connections; ++i) {
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    r->RegisterService(echo_service_.get());
+    connections.push_back(r);
+    CHECK(r->Connect());
+    boost::shared_ptr<Hello::EchoService2::Stub> s(new Hello::EchoService2::Stub(connections.back().get()));
+    stubs.push_back(s);
+    for (int j = 0; j < FLAGS_num_threads; ++j) {
+      pool.PushTask(boost::bind(&ListenTest::ClientThreadRun, this, stubs.back()));
+    }
+  }
+  int cnt = 0;
+  while (pcqueue_->Pop()) {
+    LOG(INFO) << "Get on pop" << cnt++;
+    if (cnt == FLAGS_num_threads * FLAGS_num_connections) {
+      break;
+    }
+  }
+  pool.Stop();
+  for (int i = 0; i < FLAGS_num_connections; ++i) {
+    connections[i]->Disconnect();
+  }
+  VLOG(2) << "Close client connection";
+}
+
 int main(int argc, char **argv) {
   FLAGS_v = 4;
   FLAGS_logtostderr = true;

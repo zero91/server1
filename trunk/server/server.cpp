@@ -85,6 +85,7 @@ void Server::Listen(const string &address,
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
     acceptor_table_.insert(make_pair(host, AcceptorResource(acceptor, socket)));
   }
+  connection_template->set_name(host + "::Server");
   acceptor->async_accept(*socket, AcceptorHandler(acceptor, socket, host, this, connection_template));
 }
 
@@ -101,7 +102,7 @@ void Server::Stop() {
     for (ConnectionTable::iterator it = connection_table_.begin();
          it != connection_table_.end(); ++it) {
       Connection *connection = *it;
-      VLOG(2) << "Release connection : " << connection->name();
+      LOG(WARNING) << "Release connection : " << connection->name();
       connection->Close();
     }
   }

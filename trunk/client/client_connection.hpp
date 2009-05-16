@@ -8,6 +8,7 @@ class ClientConnection : public FullDualChannel {
     : connection_(NULL), io_service_pool_("ClientIOService", 1),
       threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port) {
       VLOG(2) << "Constructor client connection";
+    connection_template_.set_name(server + "::" + port + "::Client");
   }
   virtual bool RegisterService(google::protobuf::Service *service) {
     return connection_template_.RegisterService(service);

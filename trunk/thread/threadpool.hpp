@@ -10,10 +10,10 @@ class ThreadPool : public boost::noncopyable, public Executor {
   ThreadPool(const string name, int size) : name_(name), size_(size) {
   }
   void Start() {
-    LOG(INFO) << name() << " Start.";
+    VLOG(2) << name() << " Start.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
     if (threads_.size() > 0) {
-      LOG(INFO) << name() << " Running.";
+      VLOG(2) << name() << " Running.";
       return;
     }
     for (int i = 0; i < size_; ++i) {
@@ -28,10 +28,10 @@ class ThreadPool : public boost::noncopyable, public Executor {
     return name_;
   }
   void Stop() {
-    LOG(INFO) << name() << " Stop.";
+    VLOG(2) << name() << " Stop.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
     if (threads_.empty()) {
-      LOG(INFO) << name() << " already stop.";
+      VLOG(2) << name() << " already stop.";
       return;
     }
     for (int i = 0; i < threads_.size(); ++i) {

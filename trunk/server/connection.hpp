@@ -65,7 +65,7 @@ class Connection : public Executor {
   }
   void Close() {
     if (status_->closing()) {
-      VLOG(2) << name() << " already in closing";
+      VLOG(2) << name() << " Call Close but already in closing";
       return;
     }
     if (!socket_.get()) {
@@ -146,7 +146,7 @@ class ConnectionReadHandler {
     : connection_(connection), status_(status) {
   }
   virtual void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
-    VLOG(2) << "ConnectionWriteHandler e: " << e.message() << " bytes: " << bytes_transferred;
+    VLOG(2) << "ConnectionReadHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
     if (!e) {
       if (!status_->closing()) {
         connection_->HandleRead(e, bytes_transferred);
@@ -155,7 +155,7 @@ class ConnectionReadHandler {
       }
     } else {
       if (!status_->closing()) {
-        status_->set_closing();
+        VLOG(2) << "error then closing " << connection_->name();
         connection_->Close();
       } else {
         VLOG(2) << "error but connection is already closing";
@@ -182,7 +182,7 @@ class ConnectionWriteHandler {
       }
     } else {
       if (!status_->closing()) {
-        status_->set_closing();
+        VLOG(2) << "error then closing " << connection_->name();
         connection_->Close();
       } else {
         VLOG(2) << "error but connection is already closing";
@@ -363,7 +363,7 @@ void ConnectionImpl<Decoder>::InternalScheduleWrite() {
     // Switch the working vector.
     incoming_index_ = 1 - incoming_index_;
   }
-  VLOG(2) << name() << " : " << "Schedule Write socket open:" << socket_->is_open();
+  VLOG(2) << name() << " : " << " Internal Schedule Write socket open:" << socket_->is_open();
   if (outcoming()->empty()) {
     status_->clear_writting();
     VLOG(2) << "No outcoming";

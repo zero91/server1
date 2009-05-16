@@ -26,9 +26,6 @@ class SharedConstBuffers {
   }
   SharedConstBuffers() : start_(0), store_(new Store) {
   }
-  ~SharedConstBuffers() {
-    clear();
-  }
   void push(const string *data) {
     VLOG(2) << "SharedConstBuffers push: " << data;
     store_->data.push_back(data);
