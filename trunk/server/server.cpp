@@ -95,6 +95,7 @@ void Server::Stop() {
   }
   is_running_ = false;
   VLOG(2) << "Server stop";
+  threadpool_.Stop();
   {
     boost::mutex::scoped_lock locker(connection_table_mutex_);
     for (ConnectionTable::iterator it = connection_table_.begin();
@@ -102,9 +103,7 @@ void Server::Stop() {
       Connection *connection = *it;
       VLOG(2) << "Release connection : " << connection->name();
       connection->Close();
-      delete connection;
     }
-    connection_table_.clear();
   }
   {
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
@@ -115,19 +114,22 @@ void Server::Stop() {
     }
     acceptor_table_.clear();
   }
-  threadpool_.Stop();
   io_service_pool_.Stop();
+  {
+    boost::mutex::scoped_lock locker(connection_table_mutex_);
+    for (ConnectionTable::iterator it = connection_table_.begin();
+         it != connection_table_.end(); ++it) {
+      Connection *connection = *it;
+      VLOG(2) << "Delete connection : " << connection->name();
+      delete connection;
+    }
+  }
 }
 
 void Server::RemoveConnection(Connection *connection) {
-  if (!is_running_) {
-    return;
-  }
-  {
-    boost::mutex::scoped_lock locker(connection_table_mutex_);
-    connection_table_.erase(connection);
-    VLOG(2) << "Remove " << connection->name();
-  }
+  boost::mutex::scoped_lock locker(connection_table_mutex_);
+  connection_table_.erase(connection);
+  VLOG(2) << "Remove " << connection->name();
   delete connection;
 }
 

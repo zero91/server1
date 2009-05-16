@@ -83,7 +83,7 @@ class ListenTest : public testing::Test {
     VLOG(2) << "New server connection";
     server_connection_.reset(new ProtobufConnection);
     server_connection_->set_name("Server");
-    server_.reset(new Server(FLAGS_num_threads, 1));
+    server_.reset(new Server(2, FLAGS_num_threads));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection(FLAGS_server, FLAGS_port));
     client_connection_->set_name("Client");

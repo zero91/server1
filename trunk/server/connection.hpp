@@ -62,7 +62,6 @@ class ConnectionStatus {
 class Connection : public Executor {
  public:
   virtual ~Connection() {
-    VLOG(2) << name() << " : " << " destroy.";
   }
   void Close() {
     if (status_->closing()) {
@@ -243,7 +242,6 @@ protected:
 template <class Decoder>
 void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
                                          size_t bytes_transferred) {
-  VLOG(2) << name() << " : " << this << " ScheduleRead handle read connection";
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
     << bytes_transferred << " content: "
     << string(buffer_.data(), bytes_transferred);
@@ -257,24 +255,15 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
       decoder_->Decode(p, end);
     if (result) {
       VLOG(2) << name() << " : " << "Handle lineformat: size: " << (p - start);
-      VLOG(2) << name() << " : " << " use count" << " status: " << status_->status() <<" : " << this;
       boost::shared_ptr<const Decoder> shared_decoder(decoder_);
       decoder_.reset(new Decoder);
       Executor *this_executor = this->executor();
-      VLOG(2) << name() << " : " << " use count" << " status: " << status_->status() <<" : " << this;
-      VLOG(2) << name() << " : " << " use count" << " status: " << status_->status() <<" : " << this;
-      /*
-         if (this_executor.get() == NULL) {
-         Handle(shared_decoder);
-         } else {
-      // This is executed in another thread.
-      boost::function0<void> handler = boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder);
-      this_executor->Run(boost::bind(
-          &Connection::Run, shared_from_this(), handler));
-          }
-          */
-      Handle(shared_decoder);
-      VLOG(2) << name() << " : " << this << " ScheduleRead execute use count" << " status: " << status_->status() <<" : " << this;
+      if (this_executor == NULL) {
+        Handle(shared_decoder);
+      } else {
+        // This is executed in another thread.
+        this_executor->Run(boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder));
+      }
     } else if (!result) {
       VLOG(2) << name() << " : " << "Parse error";
       status_->clear_reading();
@@ -287,7 +276,7 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
       return;
     }
   }
-  VLOG(2) << name() << " : " << this << "ScheduleRead After reach the end use count" << " status: " << status_->status() <<" : " << this;
+  VLOG(2) << name() << " : " << this << "ScheduleRead After reach the end status: " << status_->status() <<" : " << this;
   status_->clear_reading();
   ScheduleRead();
 }
@@ -344,13 +333,12 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
     VLOG(2) << name() << " : " << " ScheduleWrite but socket is null";
     return;
   }
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " " << this;
   socket_->get_io_service().post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleWrite, this));
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleWrite() {
-  VLOG(2) << name() << " : " << " status: " << status_->status();
+  VLOG(2) << name() << " : " << this << " InternalScheduleWrite" << " status: " << status_->status();
   if (status_->closing()) {
     VLOG(2) << name() << " : " << " InternalScheduleWrite but is closing";
     return;
@@ -378,17 +366,16 @@ void ConnectionImpl<Decoder>::InternalScheduleWrite() {
   VLOG(2) << name() << " : " << "Schedule Write socket open:" << socket_->is_open();
   if (outcoming()->empty()) {
     status_->clear_writting();
-    LOG(WARNING) << "No outcoming";
+    VLOG(2) << "No outcoming";
     return;
   }
   socket_->async_write_some(*outcoming(), ConnectionWriteHandler(this, status_));
-  VLOG(2) << name() << " : " << this << " InternalScheduleWrite" << " status: " << status_->status();
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e, size_t byte_transferred) {
   if (status_->closing()) {
-    VLOG(2) << name() << " : " << " ScheduleWrite but is closing";
+    VLOG(2) << name() << " : " << " HandleWrite but is closing";
     return;
   }
   VLOG(2) << name() << " : " << this << " HandleWrite bytes: " << byte_transferred << " status: " << status_->status();

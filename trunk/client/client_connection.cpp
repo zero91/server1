@@ -10,6 +10,7 @@ bool ClientConnection::Connect() {
     return true;
   }
   Disconnect();
+  threadpool_.Start();
   io_service_pool_.Start();
   boost::asio::ip::tcp::resolver::query query(server_, port_);
   boost::asio::ip::tcp::resolver resolver(io_service_pool_.get_io_service());
@@ -32,6 +33,7 @@ bool ClientConnection::Connect() {
   connection_ = connection_template_.Clone();
   connection_->set_socket(socket);
   connection_->set_close_handler(boost::bind(&ClientConnection::ConnectionClose, this));
+  connection_->set_executor(&threadpool_);
   boost::shared_ptr<ConnectionStatus> status(new ConnectionStatus);
   connection_->set_connection_status(status);
   return true;

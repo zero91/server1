@@ -5,7 +5,8 @@
 class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
-    : connection_(NULL), io_service_pool_("ClientIOService", 1), server_(server), port_(port) {
+    : connection_(NULL), io_service_pool_("ClientIOService", 1),
+      threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port) {
       VLOG(2) << "Constructor client connection";
   }
   virtual bool RegisterService(google::protobuf::Service *service) {
@@ -34,6 +35,7 @@ class ClientConnection : public FullDualChannel {
   }
   bool Connect();
   void Disconnect() {
+    threadpool_.Stop();
     if (connection_) {
       connection_->Close();
     }
@@ -43,10 +45,12 @@ class ClientConnection : public FullDualChannel {
     VLOG(2) << "~ClientConnection";
   }
  private:
+  static const int kClientThreadPoolSize = 1;
   bool ConnectionClose();
   ProtobufConnection *connection_;
   ProtobufConnection connection_template_;
   IOServicePool io_service_pool_;
+  ThreadPool threadpool_;
   string server_, port_;
 };
 
