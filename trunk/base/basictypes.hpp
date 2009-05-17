@@ -1,3 +1,12 @@
+// http://code.google.com/p/server1/
+//
+// You can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Author: xiliu.tang@gmail.com (Xiliu Tang)
+
 #ifndef BASICTYPES_HPP_
 #define BASICTYPES_HPP_
 typedef signed char         schar;

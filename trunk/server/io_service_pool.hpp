@@ -1,3 +1,12 @@
+// http://code.google.com/p/server1/
+//
+// You can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Author: xiliu.tang@gmail.com (Xiliu Tang)
+
 #ifndef NET2_IO_SERVICE_POOL_HPP_
 #define NET2_IO_SERVICE_POOL_HPP_
 #include "base/base.hpp"
