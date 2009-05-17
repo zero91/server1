@@ -18,3 +18,5 @@ This is a cross-platform full dual rpc protobuf service, there are some point:
  * a lightweight thread pool.
 
 = Details =
+  * The server example: http://code.google.com/p/server1/source/browse/trunk/server/posix_main.cpp
+  * The client example: http://code.google.com/p/server1/source/browse/trunk/server/posix_client.cpp
