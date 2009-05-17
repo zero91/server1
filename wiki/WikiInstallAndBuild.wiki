@@ -2,7 +2,7 @@
 
 = Introduction =
 
-Add your content here.
+How to build.
 
 
 = Details =
@@ -11,14 +11,19 @@ Add your content here.  Format your content with:
 Text in *bold* or _italic_
 Headings, paragraphs, and lists
 Automatic links to other wiki pages
-  * Package should install(assume your source is path/src:
+  * Package should install(assume your source is path/src):
   * 1. scons
   * 2. Install all the packages to path/third_party:
-    * a. boost1.39
-    * b. gflag
-    * c. pcre
-    * d. glog
-    * e. protobuf
-    * f. gtest
-    * g. tcmalloc (for heap checker)
+    * boost1.39
+      * should install to path/third_party/boost, like: ./bootstrap.sh --prefix=path/third_party --libdir=path/third_party/boost/lib --includedir=path/third_party/boost/include
+    * gflag
+      * Install to path/third_party/gflag
+    * glog
+      * Install to path/third_party/glog
+    * protobuf
+      * Install to path/third_party/protobuf
+    * gtest
+      * Install to path/third_party/gtest
+    * tcmalloc (for heap checker)
+      * Install to /usr/lib or /usr/local/lib, be sure to set the LD_LIBRARY_PATH when can't find the lib.
   * run scons under path/src
