@@ -85,7 +85,7 @@ private:
   ProtobufLineFormat::MetaData meta_;
 };
 
-class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtual public FullDualChannel {
+class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual public FullDualChannel {
  private:
    typedef hash_map<uint64, boost::function2<void, boost::shared_ptr<const ProtobufDecoder>,
           ProtobufConnection*> > HandlerTable;

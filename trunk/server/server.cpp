@@ -4,26 +4,26 @@
 class AcceptorHandler {
  public:
   AcceptorHandler(boost::asio::ip::tcp::acceptor *acceptor,
-                  boost::asio::ip::tcp::socket * socket,
+                  boost::asio::ip::tcp::socket **socket_pptr,
                   const string host,
                   Server *server,
                   Connection *connection_template)
-    : acceptor_(acceptor), socket_(socket), host_(host), server_(server), connection_template_(connection_template) {
+    : acceptor_(acceptor), socket_pptr_(socket_pptr), host_(host), server_(server), connection_template_(connection_template) {
   }
   void operator()(const boost::system::error_code& e) {
     if (!e) {
       VLOG(2) << "HandleAccept " << host_;
-      if (socket_ && socket_->is_open()) {
+      boost::asio::ip::tcp::socket *socket = *socket_pptr_;
+      if (socket && socket->is_open()) {
         VLOG(2) << "Socket is connected";
-        boost::asio::io_service &io_service = socket_->get_io_service();
-        boost::asio::ip::tcp::socket *live_socket = socket_;
-        socket_ = new boost::asio::ip::tcp::socket(io_service);
-        acceptor_->async_accept(*socket_, *this);
+        boost::asio::io_service &io_service = socket->get_io_service();
+        *socket_pptr_ = new boost::asio::ip::tcp::socket(io_service);
+        acceptor_->async_accept(**socket_pptr_, *this);
         Connection *new_connection = connection_template_->Clone();
-        new_connection->set_socket(live_socket);
-        server_->HandleAccept(e, host_, socket_, new_connection);
+        new_connection->set_socket(socket);
+        server_->HandleAccept(e, new_connection);
       } else {
-        acceptor_->async_accept(*socket_, *this);
+        acceptor_->async_accept(**socket_pptr_, *this);
       }
     } else {
       VLOG(2) << "HandleAccept error: " << e.message();
@@ -34,7 +34,7 @@ class AcceptorHandler {
   string host_;
   // Have the ownership.
   boost::asio::ip::tcp::acceptor *acceptor_;
-  boost::asio::ip::tcp::socket * socket_;
+  boost::asio::ip::tcp::socket **socket_pptr_;
   // Haven't the ownership.
   Server *server_;
   Connection *connection_template_;
@@ -61,8 +61,7 @@ void Server::ReleaseAcceptor(const string &host) {
     VLOG(2) << "Can't find " << host;
     return;
   }
-  delete it->second.acceptor;
-  delete it->second.socket;
+  it->second.Release();
 }
 
 void Server::Listen(const string &address,
@@ -82,13 +81,14 @@ void Server::Listen(const string &address,
   acceptor->set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
   acceptor->bind(endpoint);
   acceptor->listen();
-  boost::asio::ip::tcp::socket * socket = new boost::asio::ip::tcp::socket(io_service_pool_.get_io_service());
+  boost::asio::ip::tcp::socket **socket_pptr = new (boost::asio::ip::tcp::socket*);
+  *socket_pptr = new boost::asio::ip::tcp::socket(io_service_pool_.get_io_service());
   {
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
-    acceptor_table_.insert(make_pair(host, AcceptorResource(acceptor, socket)));
+    acceptor_table_.insert(make_pair(host, AcceptorResource(acceptor, socket_pptr)));
   }
   connection_template->set_name(host + "::Server");
-  acceptor->async_accept(*socket, AcceptorHandler(acceptor, socket, host, this, connection_template));
+  acceptor->async_accept(**socket_pptr, AcceptorHandler(acceptor, socket_pptr, host, this, connection_template));
 }
 
 void Server::Stop() {
@@ -98,7 +98,6 @@ void Server::Stop() {
   }
   is_running_ = false;
   VLOG(2) << "Server stop";
-  threadpool_.Stop();
   {
     boost::mutex::scoped_lock locker(connection_table_mutex_);
     for (ConnectionTable::iterator it = connection_table_.begin();
@@ -112,11 +111,11 @@ void Server::Stop() {
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
     for (AcceptorTable::iterator it = acceptor_table_.begin(); it != acceptor_table_.end(); ++it) {
       VLOG(2) << "Delete acceptor on " << it->first;
-      delete it->second.acceptor;
-      delete it->second.socket;
+      it->second.Release();
     }
     acceptor_table_.clear();
   }
+  threadpool_.Stop();
   io_service_pool_.Stop();
 }
 
@@ -128,22 +127,12 @@ void Server::RemoveConnection(Connection *connection) {
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
-                          const string &host,
-                          boost::asio::ip::tcp::socket *socket,
                           Connection *new_connection) {
   VLOG(2) << "HandleAccept";
-  {
-    boost::mutex::scoped_lock locker(acceptor_table_mutex_);
-    AcceptorTable::iterator it = acceptor_table_.find(host);
-    CHECK(it != acceptor_table_.end());
-    it->second.socket = socket;
-  }
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
   new_connection->set_executor(&threadpool_);
   new_connection->push_close_handler(boost::bind(&Server::RemoveConnection, this, new_connection));
-  boost::shared_ptr<ConnectionStatus> status(new ConnectionStatus);
-  new_connection->set_connection_status(status);
   {
     boost::mutex::scoped_lock locker(connection_table_mutex_);
     connection_table_.insert(new_connection);

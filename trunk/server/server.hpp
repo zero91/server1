@@ -29,10 +29,15 @@ public:
 private:
   struct AcceptorResource {
     boost::asio::ip::tcp::acceptor *acceptor;
-    boost::asio::ip::tcp::socket * socket;
+    boost::asio::ip::tcp::socket **socket_pptr;
     AcceptorResource(boost::asio::ip::tcp::acceptor *in_acceptor,
-                     boost::asio::ip::tcp::socket *in_socket)
-      : acceptor(in_acceptor), socket(in_socket) {
+                     boost::asio::ip::tcp::socket **in_socket_pptr)
+      : acceptor(in_acceptor), socket_pptr(in_socket_pptr) {
+    }
+    void Release() {
+      delete acceptor;
+      delete *socket_pptr;
+      delete socket_pptr;
     }
   };
   typedef hash_map<string, AcceptorResource> AcceptorTable;
@@ -42,8 +47,6 @@ private:
   typedef hash_set<Connection*> ConnectionTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
-                    const string &host,
-                    boost::asio::ip::tcp::socket *socket,
                     Connection *new_connection);
 
   // The pool of io_service objects used to perform asynchronous operations.

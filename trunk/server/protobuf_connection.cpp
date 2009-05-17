@@ -171,13 +171,11 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
 void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
   VLOG(2) << name() << " : " << "Handle request: " << meta.DebugString();
+  HandlerTable::value_type::second_type handler;
   HandlerTable::iterator it = handler_table_->find(meta.identify());
   if (it != handler_table_->end()) {
-    it->second(decoder, this);
-    return;
-  }
-  HandlerTable::value_type::second_type handler;
-  {
+    handler = it->second;
+  } else {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
     it = response_handler_table_.find(meta.identify());
     if (it == response_handler_table_.end()) {
@@ -188,7 +186,16 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     response_handler_table_.erase(it);
     VLOG(2) << name() << " Remove: " << it->first << " from response handler table, size: " << response_handler_table_.size();
   }
-  handler(decoder, this);
+  ++running_count_;
+  boost::function0<void> handler_run = boost::bind(handler, decoder, this);
+  boost::function0<void> h = boost::bind(&ProtobufConnection::Run, this, handler_run);
+  Executor *this_executor = this->executor();
+  if (this_executor == NULL) {
+    h();
+  } else {
+    // This is executed in another thread.
+    this_executor->Run(h);
+  }
 }
 
 ProtobufConnection* ProtobufConnection::Clone() {

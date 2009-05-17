@@ -40,7 +40,5 @@ bool ClientConnection::Connect() {
   } else {
     connection_->set_executor(&threadpool_);
   }
-  boost::shared_ptr<ConnectionStatus> status(new ConnectionStatus);
-  connection_->set_connection_status(status);
   return true;
 }

@@ -49,6 +49,14 @@ class ConnectionStatus {
     return status_ & SHUTDOWN;
   }
 
+  void set_closed() {
+    status_ |= CLOSED;
+  }
+
+  bool closed() const {
+    return status_ & CLOSED;
+  }
+
   bool closing() const {
     return status_ & CLOSING;
   }
@@ -63,14 +71,15 @@ class ConnectionStatus {
     READING = 0x01 << 1,
     WRITTING = 0x01 << 2,
     CLOSING = 0x01 << 3,
-    SHUTDOWN = 0x01 << 4
+    SHUTDOWN = 0x01 << 4,
+    CLOSED = 0x01 << 5
   };
   mutable int status_;
 };
 
 class Connection {
  public:
-  Connection() : running_count_(0) {
+  Connection() : running_count_(0), status_(new ConnectionStatus) {
   }
   void Close() {
     if (status_->closing()) {
@@ -81,9 +90,7 @@ class Connection {
       VLOG(2) << name() << " socket is null, may closed";
       return;
     }
-    if (socket_.get()) {
-      socket_->get_io_service().post(boost::bind(&Connection::InternalClose, this));
-    }
+    socket_->get_io_service().post(boost::bind(&Connection::InternalClose, this));
   }
 
   void set_socket(boost::asio::ip::tcp::socket *socket) {
@@ -112,9 +119,6 @@ class Connection {
     close_handlers_.push_back(h);
   }
 
-  void set_connection_status(boost::shared_ptr<ConnectionStatus> status) {
-    status_ = status;
-  }
   virtual bool IsConnected() {
     return socket_ && socket_->is_open();
   }
@@ -125,9 +129,9 @@ class Connection {
   virtual ~Connection() {
   }
  protected:
+  inline void Run(const boost::function0<void> &f);
   inline void InternalClose();
   inline void Shutdown();
-  inline void Run(const boost::function0<void> &f);
   inline void RunDone();
   virtual void HandleRead(const boost::system::error_code& e, size_t bytes_transferred) = 0;
   virtual void HandleWrite(const boost::system::error_code& e, size_t byte_transferred) = 0;
@@ -148,10 +152,10 @@ class ConnectionReadHandler {
   virtual void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
     VLOG(2) << "ConnectionReadHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
     if (!e) {
-      if (!status_->closing()) {
+      if (!status_->closed()) {
         connection_->HandleRead(e, bytes_transferred);
       } else {
-        VLOG(2) << "non error but connection is already closing";
+        VLOG(2) << "non error but connection is closed";
       }
     } else {
       if (!status_->closing()) {
@@ -175,10 +179,10 @@ class ConnectionWriteHandler {
   void operator() (const boost::system::error_code &e, size_t byte_transferred) {
     VLOG(2) << "ConnectionWriteHandler e: " << e.message() << " bytes: " << byte_transferred;
     if (!e) {
-      if (!status_->closing()) {
+      if (!status_->closed()) {
         connection_->HandleWrite(e, byte_transferred);
       } else {
-        VLOG(2) << "non error but connection is already closing";
+        VLOG(2) << "non error but connection is already closed";
       }
     } else {
       if (!status_->closing()) {
@@ -197,7 +201,7 @@ class ConnectionWriteHandler {
 // Represents a single Connection from a client.
 // The Handler::Handle method should be multi thread safe.
 template <typename Decoder>
-class ConnectionImpl : virtual public Connection {
+class ConnectionImpl : public Connection {
  private:
 public:
   ConnectionImpl() : Connection(), incoming_index_(0), decoder_(new Decoder) {
@@ -260,6 +264,7 @@ void Connection::Shutdown() {
   socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
   socket_->close();
   socket_.reset();
+  status_->set_closed();
   for (int i = 0; i < close_handlers_.size(); ++i) {
     if (!close_handlers_[i].empty()) {
       close_handlers_[i]();
@@ -298,6 +303,7 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
       VLOG(2) << name() << " : " << "Handle lineformat: size: " << (p - start);
       boost::shared_ptr<const Decoder> shared_decoder(decoder_);
       decoder_.reset(new Decoder);
+      /*
       Executor *this_executor = this->executor();
       ++running_count_;
       boost::function0<void> handler_run = boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder);
@@ -308,6 +314,8 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
         // This is executed in another thread.
         this_executor->Run(h);
       }
+      */
+      Handle(shared_decoder);
     } else if (!result) {
       VLOG(2) << name() << " : " << "Parse error";
       status_->clear_reading();
