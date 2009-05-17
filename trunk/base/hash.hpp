@@ -9,11 +9,6 @@ inline uint64 hash8(const string &x) {
                static_cast<uint64>(x.size()), 0xbeef);
 }
 
-inline uint64 hash8(const StringPiece &x) {
-  return hash8(reinterpret_cast<const uint8*>(x.data()),
-               static_cast<uint64>(x.size()), 0xbeef);
-}
-
 # if defined(_MSC_VER)
 // MSVC's stl implementation doesn't have this hash struct.
 template <typename T>
@@ -39,11 +34,6 @@ template<> struct hash<string> {
   }
 };
 
-template<> struct hash<StringPiece> {
-  size_t operator()(const StringPiece &x) const {
-    return static_cast<size_t>(hash8(x));
-  }
-};
 template<class T> struct hash<T*> {
     size_t operator()(T *x) const { return reinterpret_cast<size_t>(x); }
 };

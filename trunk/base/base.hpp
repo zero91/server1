@@ -1,11 +1,6 @@
 #ifndef BASE_H_
 #define BASE_H_
 #include "protobuf/message.h"
-
-#include "pcre.h"
-#include "pcre_stringpiece.h"
-typedef pcrecpp::StringPiece StringPiece;
-
 #include "boost/tuple/tuple.hpp"
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
