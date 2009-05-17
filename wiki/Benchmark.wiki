@@ -1,0 +1,10 @@
+#summary One-sentence summary of this page.
+
+= Introduction =
+The benchmark run the 60K full dual rpc call in a dell ubuntu labtop.
+* config the system to support large socket connection
+    * set the file size: /etc/security/limits.conf.
+    * echo "32768 61000" >/proc/sys/net/ipv4/ip_local_port_range, or sysctl -w net.ipv4.ip_local_port_range ='32768 61000' 
+* build and run command:
+  * start server: build/server/server0 -v=0
+  * start client: build/server/client0 --num_threads=10 --num_connections=50000 -v=0
