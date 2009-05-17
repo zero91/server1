@@ -188,11 +188,15 @@ TEST_F(ListenTest, MultiThreadTest1) {
 TEST_F(ListenTest, MultiThreadMultConnectionTest1) {
   ThreadPool pool("Test", FLAGS_num_threads);
   pool.Start();
+  IOServicePool client_io("TestIO", 2);
+  client_io.Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
     r->RegisterService(echo_service_.get());
+    r->set_threadpool(&pool);
+    r->set_io_service_pool(&client_io);
     connections.push_back(r);
     CHECK(r->Connect());
     boost::shared_ptr<Hello::EchoService2::Stub> s(new Hello::EchoService2::Stub(connections.back().get()));
@@ -208,10 +212,11 @@ TEST_F(ListenTest, MultiThreadMultConnectionTest1) {
       break;
     }
   }
-  pool.Stop();
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     connections[i]->Disconnect();
   }
+  pool.Stop();
+  client_io.Stop();
   VLOG(2) << "Close client connection";
 }
 

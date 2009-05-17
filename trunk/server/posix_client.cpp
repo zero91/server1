@@ -76,13 +76,30 @@ int main(int argc, char* argv[]) {
   pool.Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
+  IOServicePool client_io("PosixClientIO", 2);
+  client_io.Start();
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_address, FLAGS_port));
     r->RegisterService(echo_service.get());
+    r->set_threadpool(&pool);
+    r->set_io_service_pool(&client_io);
     connections.push_back(r);
-    CHECK(r->Connect());
+    while (1) {
+      try {
+        if (r->Connect()) {
+          LOG(INFO) << "Connect " << i;
+          break;
+        }
+      } catch (std::exception e) {
+        LOG(INFO) << "exception: " << e.what();
+      }
+      sleep(1);
+      LOG(INFO) << "Retry " << i;
+    }
     boost::shared_ptr<Hello::EchoService2::Stub> s(new Hello::EchoService2::Stub(connections.back().get()));
     stubs.push_back(s);
+  }
+  for (int i = 0; i < FLAGS_num_connections; ++i) {
     for (int j = 0; j < FLAGS_num_threads; ++j) {
       pool.PushTask(boost::bind(ClientThreadRun, stubs.back(), i * FLAGS_num_connections + j));
     }
@@ -95,9 +112,10 @@ int main(int argc, char* argv[]) {
     }
   }
   VLOG(0) << "Disconnect";
-  pool.Stop();
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     connections[i]->Disconnect();
   }
+  pool.Stop();
+  client_io.Stop();
   return 0;
 }

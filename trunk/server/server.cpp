@@ -18,11 +18,13 @@ class AcceptorHandler {
         boost::asio::io_service &io_service = socket_->get_io_service();
         boost::asio::ip::tcp::socket *live_socket = socket_;
         socket_ = new boost::asio::ip::tcp::socket(io_service);
+        acceptor_->async_accept(*socket_, *this);
         Connection *new_connection = connection_template_->Clone();
         new_connection->set_socket(live_socket);
         server_->HandleAccept(e, host_, socket_, new_connection);
+      } else {
+        acceptor_->async_accept(*socket_, *this);
       }
-      acceptor_->async_accept(*socket_, *this);
     } else {
       VLOG(2) << "HandleAccept error: " << e.message();
       server_->ReleaseAcceptor(host_);
@@ -148,7 +150,7 @@ void Server::HandleAccept(const boost::system::error_code& e,
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
   new_connection->set_executor(&threadpool_);
-  new_connection->set_close_handler(boost::bind(&Server::RemoveConnection, this, new_connection));
+  new_connection->push_close_handler(boost::bind(&Server::RemoveConnection, this, new_connection));
   boost::shared_ptr<ConnectionStatus> status(new ConnectionStatus);
   new_connection->set_connection_status(status);
   {

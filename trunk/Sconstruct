@@ -72,14 +72,17 @@ static_libs = other_libs + list(set(boost_libs))
 dynamic_libs = ['pthread', 'tcmalloc']
 #dynamic_libs = ['pthread']
 
-link_flags = '-g -Wl,-Bdynamic'
+link_flags = ' -Wl,-Bdynamic'
 for i in dynamic_libs:
   link_flags += ' -l' + i
 link_flags += ' -Wl,-Bstatic'
+link_flags += ' -g'
 
 env = DefaultEnvironment()
 env['LINKCOM'] = "$LINK -o $TARGET $SOURCES $LINKFLAGS $_LIBDIRFLAGS $_LIBFLAGS -Wl,-Bdynamic"
-env.Append(CPPFLAGS='-g -static')
+env.Append(CPPFLAGS='-g')
+#env.Append(CPPFLAGS='-O2')
+env.Append(CPPFLAGS=' -static')
 env.Append(LINKFLAGS=link_flags)
 env.Append(CPPPATH=cpp_path)
 env.Append(LIBPATH=lib_path)
