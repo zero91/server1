@@ -7,14 +7,14 @@ This is a cross-platform full dual rpc protobuf service, there are some point:
  * cross-platform, it is because the boost asio and protobuf are cross-platform.
  * It implement the protobuf rpc service.
  * dual rpc, the client can call server rpc service, and the server can call back the client service, the example like:
-   * server_connection.RegisterService(server_service);
-   * server start.
-   * client_connection.RegisterService(client_serivce)
-   * client_connection connect to server
-   * client stub call to server service.
-   * // In the server
-   * The server get the client connection and call the client service.
-   * The server call back to client is useful when server need to push emergence message to client, it is a good elaborate to the "long connection".
+   * 1. server_connection.RegisterService(server_service);
+   * 2. server start.
+   * 3. client_connection.RegisterService(client_serivce)
+   * 4. client_connection connect to server
+   * 5. client stub call to server service.
+   * 6. // In the server
+   * 7. The server get the client connection and call the client service.
+   * 8. The server call back to client is useful when server need to push emergence message to client, it is a good elaborate to the "long connection".
  * a lightweight thread pool.
 
 = Details =
