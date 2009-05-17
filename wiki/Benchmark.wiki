@@ -11,3 +11,4 @@ The benchmark run the 50K long connection in a dell ubuntu labtop.
   * The test scheme is the client call the server rpc service, then the server call the client's registered service on the connected connection.
   * the server code:http://code.google.com/p/server1/source/browse/trunk/server/posix_main.cpp
   * the client code:http://code.google.com/p/server1/source/browse/trunk/server/posix_client.cpp
+  * turn on/off the heapcheck of googleperf-tool to detect the memory leaky.
