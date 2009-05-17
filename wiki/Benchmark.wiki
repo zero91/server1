@@ -9,3 +9,5 @@ The benchmark run the 50K long connection in a dell ubuntu labtop.
   * start server: build/server/server0 -v=0
   * start client: build/server/client0 --num_threads=10 --num_connections=50000 -v=0
   * The test scheme is the client call the server rpc service, then the server call the client's registered service on the connected connection.
+  * the server code:http://code.google.com/p/server1/source/browse/trunk/server/posix_main.cpp
+  * the client code:http://code.google.com/p/server1/source/browse/trunk/server/posix_client.cpp
