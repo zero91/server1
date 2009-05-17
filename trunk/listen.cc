@@ -135,6 +135,7 @@ EHttpd::~EHttpd() {
 }
 
 void EHttpd::Loop(void) {
+  static const char welcome[] = "hello world";
   struct epoll_event *e;
   struct epoll_event ev;
   int fd;
@@ -205,13 +206,14 @@ void EHttpd::Loop(void) {
                 "epoll set insertion error: fd = %d\n",
                 fd);
       }
+      write(fd, welcome, sizeof(welcome));
     }
   }
 }
 
 static short port = 8888;
 // cat /proc/sys/net/ipv4/tcp_max_syn_backlog
-static int maxbacklog = 1024;
+static int maxbacklog = 102400;
 static int maxevents = maxbacklog;
 
 int main(int argc, char **argv) {

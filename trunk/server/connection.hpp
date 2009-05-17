@@ -68,11 +68,9 @@ class ConnectionStatus {
   mutable int status_;
 };
 
-class Connection : public Executor {
+class Connection {
  public:
   Connection() : running_count_(0) {
-  }
-  virtual ~Connection() {
   }
   void Close() {
     if (status_->closing()) {
@@ -124,6 +122,8 @@ class Connection : public Executor {
   virtual Connection* Clone() = 0;
   virtual void ScheduleRead() = 0;
   virtual void ScheduleWrite() = 0;
+  virtual ~Connection() {
+  }
  protected:
   inline void InternalClose();
   inline void Shutdown();

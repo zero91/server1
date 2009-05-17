@@ -21,6 +21,8 @@ bool ClientConnection::Connect() {
   boost::system::error_code error = boost::asio::error::host_not_found;
   boost::asio::ip::tcp::socket *socket =
     new boost::asio::ip::tcp::socket(GetIOService());
+//  boost::asio::socket_base::reuse_address option(true);
+//  socket->set_option(option);
   while (error && endpoint_iterator != end) {
     socket->close();
     socket->connect(*endpoint_iterator++, error);

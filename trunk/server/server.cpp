@@ -118,15 +118,6 @@ void Server::Stop() {
     acceptor_table_.clear();
   }
   io_service_pool_.Stop();
-  {
-    boost::mutex::scoped_lock locker(connection_table_mutex_);
-    for (ConnectionTable::iterator it = connection_table_.begin();
-         it != connection_table_.end(); ++it) {
-      Connection *connection = *it;
-      VLOG(2) << "Delete connection : " << connection->name();
-      delete connection;
-    }
-  }
 }
 
 void Server::RemoveConnection(Connection *connection) {
