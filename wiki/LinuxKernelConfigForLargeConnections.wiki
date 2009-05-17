@@ -1,0 +1,6 @@
+#summary One-sentence summary of this page.
+
+= Introduction =
+How to configure linux kenerl parameter to support large connection(over 40K) in the Ubuntu.
+* set the file size: /etc/security/limits.conf.
+* 
