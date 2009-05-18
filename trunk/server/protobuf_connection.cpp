@@ -195,6 +195,8 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     response_handler_table_.erase(it);
     VLOG(2) << name() << " Remove: " << it->first << " from response handler table, size: " << response_handler_table_.size();
   }
+  handler(decoder, this);
+  /*
   ++running_count_;
   boost::function0<void> handler_run = boost::bind(handler, decoder, this);
   boost::function0<void> h = boost::bind(&ProtobufConnection::Run, this, handler_run);
@@ -205,6 +207,7 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     // This is executed in another thread.
     this_executor->Run(h);
   }
+  */
 }
 
 ProtobufConnection* ProtobufConnection::Clone() {

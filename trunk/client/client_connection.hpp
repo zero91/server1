@@ -52,15 +52,24 @@ class ClientConnection : public FullDualChannel {
   }
   bool Connect();
   void Disconnect() {
+    if (connection_) {
+      VLOG(2) << "Disconnect: " << connection_->name();
+      connection_->Close();
+    }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();
-    }
-    if (connection_) {
-      connection_->Close();
     }
     if (out_io_service_pool_ == NULL) {
       io_service_pool_.Stop();
     }
+  }
+  void Flush(const boost::function0<void> &h) {
+    if (connection_ == NULL) {
+      VLOG(2) << "Connection is null";
+      return;
+    }
+    connection_->set_flush_handler(h);
+    connection_->ScheduleFlush();
   }
   ~ClientConnection() {
     VLOG(2) << "~ClientConnection";
