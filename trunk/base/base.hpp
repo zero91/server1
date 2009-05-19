@@ -45,6 +45,7 @@ using namespace __gnu_cxx;
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#include <climits>
 
 #include "buffer.hpp"
 #include "hash.hpp"

@@ -92,29 +92,4 @@ class ClientConnection : public FullDualChannel {
   IOServicePool *out_io_service_pool_;
   string server_, port_;
 };
-
-class RpcController : public google::protobuf::RpcController {
- public:
-  void Reset() {
-    failed_.clear();
-  }
-  void SetFailed(const string &failed) {
-    failed_ = failed;
-  }
-  bool Failed() const {
-    return !failed_.empty();
-  }
-  string ErrorText() const {
-    return failed_;
-  }
-  void StartCancel() {
-  }
-  bool IsCanceled() const {
-    return false;
-  }
-  void NotifyOnCancel(google::protobuf::Closure *callback) {
-  }
- private:
-  string failed_;
-};
 #endif  // CLIENT_CONNECTION_HPP

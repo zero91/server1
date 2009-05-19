@@ -196,23 +196,12 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     VLOG(2) << name() << " Remove: " << it->first << " from response handler table, size: " << response_handler_table_.size();
   }
   handler(decoder, this);
-  /*
-  ++running_count_;
-  boost::function0<void> handler_run = boost::bind(handler, decoder, this);
-  boost::function0<void> h = boost::bind(&ProtobufConnection::Run, this, handler_run);
-  Executor *this_executor = this->executor();
-  if (this_executor == NULL) {
-    h();
-  } else {
-    // This is executed in another thread.
-    this_executor->Run(h);
-  }
-  */
 }
 
 ProtobufConnection* ProtobufConnection::Clone() {
   static int i = 0;
-  ProtobufConnection* connection = new ProtobufConnection(this->handler_table_);
+  ProtobufConnection* connection = new ProtobufConnection(this->timeout_ms_);
+  connection->handler_table_ = this->handler_table_;
   connection->set_name(this->name() + boost::lexical_cast<string>(i++));
   VLOG(2) << "Clone protobufconnection: " << name() << " -> " << connection->name();
   return connection;
@@ -224,8 +213,11 @@ static void CallMethodCallback(
     google::protobuf::RpcController *controller,
     google::protobuf::Message *response,
     google::protobuf::Closure *done) {
+  RpcController *rpc_controller = dynamic_cast<RpcController*>(
+      controller);
   if (decoder.get() == NULL) {
     VLOG(2) << "NULL Decoder, may call from destructor";
+    if (rpc_controller) rpc_controller->Notify();
     if (done) done->Run();
     return;
   }
@@ -238,9 +230,39 @@ static void CallMethodCallback(
     LOG(WARNING) << "Fail to parse the response :"
                  << meta.DebugString();
     controller->SetFailed("Fail to parse the response:" + meta.DebugString());
+    if (rpc_controller) rpc_controller->Notify();
     if (done) done->Run();
     return;
   }
+  if (rpc_controller) rpc_controller->Notify();
+  if (done) done->Run();
+}
+
+void ProtobufConnection::Timeout(const boost::system::error_code& e,
+                                 uint64 response_identify,
+                                 google::protobuf::RpcController *controller,
+                                 google::protobuf::Closure *done,
+                                 boost::shared_ptr<boost::asio::deadline_timer> timer) {
+  LOG(INFO ) << "Timeout";
+  if (e) {
+    LOG(WARNING) << "Timeout error: " << e.message();
+    return;
+  }
+  RpcController *rpc_controller = dynamic_cast<RpcController*>(
+      controller);
+  {
+    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    HandlerTable::iterator it = response_handler_table_.find(response_identify);
+    if (it == response_handler_table_.end()) {
+      VLOG(2) << name() << " : "
+              << response_identify << " timer expire";
+      return;
+    }
+    VLOG(2) << name() << " : " << response_identify << " timeout";
+    response_handler_table_.erase(it);
+  }
+  controller->SetFailed("Timeout");
+  if (rpc_controller) rpc_controller->Notify();
   if (done) done->Run();
 }
 
@@ -277,4 +299,12 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
   PushData(EncodeMessage(&meta));
   ScheduleWrite();
   ScheduleRead();
+  if (timeout_ms_ > 0) {
+    boost::shared_ptr<boost::asio::deadline_timer> timer(
+        new boost::asio::deadline_timer(socket_->get_io_service()));
+    timer->expires_from_now(boost::posix_time::milliseconds(timeout_ms_));
+    const boost::function1<void, const boost::system::error_code&> h =
+          boost::bind(&ProtobufConnection::Timeout, this, _1, response_identify, controller, done, timer);
+    timer->async_wait(h);
+  }
 }

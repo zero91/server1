@@ -31,11 +31,11 @@ class EchoService2ServerImpl : public Hello::EchoService2 {
                      const Hello::EchoRequest *request,
                      Hello::EchoResponse *response,
                      google::protobuf::Closure *done) {
-    LOG(INFO) << "CallEcho1 request: " << request->question();
+    VLOG(1) << "CallEcho1 request: " << request->question();
     response->set_echoed(1);
     response->set_text("server->" + request->question());
     response->set_close(false);
-    LOG(INFO) << "CallEcho1 response: " << response->text();
+    VLOG(1) << "CallEcho1 response: " << response->text();
     string callecho2_question = "server question" + boost::lexical_cast<string>(i_++);
     VLOG(2) << "CallEcho2 tmp request: " << callecho2_question;
     VLOG(2) << "done Run";
@@ -51,17 +51,18 @@ class EchoService2ServerImpl : public Hello::EchoService2 {
     Hello::EchoRequest2  *request2 = new Hello::EchoRequest2;
     Hello::EchoResponse2 *response2 = new Hello::EchoResponse2;
     request2->set_question(callecho2_question);
-    RpcController controller2;
-    google::protobuf::Closure *done2 = google::protobuf::NewCallback(
-        this, &EchoService2ServerImpl::CallEcho2Done, request2, response2);
-    stub.Echo2(&controller2,
+    boost::shared_ptr<RpcController> controller2(new RpcController);
+    google::protobuf::Closure *done2 = NewClosure(boost::bind(
+        &EchoService2ServerImpl::CallEcho2Done, this, request2, response2, controller2));
+    stub.Echo2(controller2.get(),
                request2,
                response2,
                done2);
     VLOG(2) << "CallEcho2 request: " << request2->question();
   }
   void CallEcho2Done(Hello::EchoRequest2 *request,
-                     Hello::EchoResponse2 *response) {
+                     Hello::EchoResponse2 *response,
+                     boost::shared_ptr<RpcController> controller) {
     if (!response->text().empty()) {
       CHECK_EQ("client->" + request->question(), response->text());
     }

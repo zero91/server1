@@ -33,7 +33,6 @@ cpp_path = [
   '$srcroot',
   '$third_party/boost/include/boost-1_39',
   '$third_party/gflags/include',
-  '$third_party/pcre/include',
   '$third_party/glog/include',
   '$third_party/protobuf/include/',
   '$third_party/protobuf/include/google',
@@ -43,7 +42,6 @@ cpp_path = [
 lib_path = [
   '$third_party/boost/lib',
   '$third_party/gflags/lib',
-  '$third_party/pcre/lib',
   '$third_party/glog/lib',
   '$third_party/protobuf/lib',
   '$third_party/gtest/lib',
@@ -62,8 +60,6 @@ other_libs = [
 'base',
 'glog',
 'gflags',
-'pcre',
-'pcrecpp',
 'protobuf',
 ]
 
@@ -80,8 +76,8 @@ link_flags += ' -g'
 
 env = DefaultEnvironment()
 env['LINKCOM'] = "$LINK -o $TARGET $SOURCES $LINKFLAGS $_LIBDIRFLAGS $_LIBFLAGS -Wl,-Bdynamic"
-env.Append(CPPFLAGS='-g')
-#env.Append(CPPFLAGS='-O2')
+#env.Append(CPPFLAGS='-g')
+env.Append(CPPFLAGS='-O2')
 env.Append(CPPFLAGS=' -static')
 env.Append(LINKFLAGS=link_flags)
 env.Append(CPPPATH=cpp_path)

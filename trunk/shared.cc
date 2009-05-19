@@ -42,7 +42,7 @@ struct Base3 : public boost::enable_shared_from_this<Base3> {
 
 
 template <typename C>
-struct Base2 : private Base1<C>, public boost::enable_shared_from_this<Base2<C> > {
+struct Base2 : public Base1<C>, public boost::enable_shared_from_this<Base2<C> > {
   ~Base2() {
     printf ("~Base2");
   }
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
   b0->Run();
   */
   boost::scoped_ptr<Base2<int> > b2(new Base2<int>);
-  Base2<int> * b22 = b2.get();
-  b2.reset();
-  b22->Run();
+  Base1<int> * b22 = b2.get();
+//  delete b22;
+  Base2<int> *b33 = dynamic_cast<Base2<int>*>(b22);
 }

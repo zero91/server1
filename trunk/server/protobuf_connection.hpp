@@ -13,20 +13,18 @@
 #include "server/connection.hpp"
 #include <server/meta.pb.h>
 #include <boost/function.hpp>
+#include <boost/thread/condition.hpp>
 #include <boost/thread/mutex.hpp>
 #include <glog/logging.h>
 #include <protobuf/message.h>
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
-class FullDualChannel : virtual public google::protobuf::RpcController,
-  virtual public google::protobuf::RpcChannel {
+class ProtobufConnection;
+class RpcController : virtual public google::protobuf::RpcController {
  public:
-  virtual bool RegisterService(google::protobuf::Service *service) = 0;
-  virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
-                          google::protobuf::RpcController *controller,
-                          const google::protobuf::Message *request,
-                          google::protobuf::Message *response,
-                          google::protobuf::Closure *done) = 0;
+  void Reset() {
+    failed_.clear();
+  }
   void SetFailed(const string &failed) {
     failed_ = failed;
   }
@@ -43,11 +41,36 @@ class FullDualChannel : virtual public google::protobuf::RpcController,
   }
   void NotifyOnCancel(google::protobuf::Closure *callback) {
   }
-  void Reset() {
-    failed_.clear();
+  bool Wait() {
+    return Wait(LONG_MAX);
+  }
+  bool Wait(int timeout_ms) {
+    boost::mutex::scoped_lock locker(mutex_);
+    bool ret = response_cond_.timed_wait(locker, boost::posix_time::milliseconds(timeout_ms));
+    if (!ret) {
+      SetFailed("Timeout");
+    }
+    return ret;
+  }
+  void Notify() {
+    response_cond_.notify_all();
   }
  private:
   string failed_;
+  bool responsed_;
+  boost::condition response_cond_;
+  boost::mutex mutex_;
+};
+
+class FullDualChannel : virtual public RpcController,
+  virtual public google::protobuf::RpcChannel {
+ public:
+  virtual bool RegisterService(google::protobuf::Service *service) = 0;
+  virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
+                          google::protobuf::RpcController *controller,
+                          const google::protobuf::Message *request,
+                          google::protobuf::Message *response,
+                          google::protobuf::Closure *done) = 0;
 };
 
 class ProtobufDecoder {
@@ -99,8 +122,13 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual publi
    typedef hash_map<uint64, boost::function2<void, boost::shared_ptr<const ProtobufDecoder>,
           ProtobufConnection*> > HandlerTable;
  public:
+  explicit ProtobufConnection(int timeout) : ConnectionImpl<ProtobufDecoder>(),
+      handler_table_(new HandlerTable), timeout_ms_(timeout) {
+    VLOG(2) << "New protobuf connection" << this << " timeout: " << timeout;
+  }
+
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable) {
+      handler_table_(new HandlerTable), timeout_ms_(0) {
     VLOG(2) << "New protobuf connection" << this;
   }
 
@@ -117,13 +145,15 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual publi
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done);
  private:
-  ProtobufConnection(boost::shared_ptr<HandlerTable> handler_table) : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(handler_table) {
-    VLOG(2) << "New protobuf connection" << this;
-  }
+  void Timeout(const boost::system::error_code& e,
+               uint64 resonse_identify,
+               google::protobuf::RpcController *controller,
+               google::protobuf::Closure *done,
+               boost::shared_ptr<boost::asio::deadline_timer> timer);
 
   virtual void Handle(boost::shared_ptr<const ProtobufDecoder> decoder);
   boost::shared_ptr<HandlerTable> handler_table_;
+  int timeout_ms_;
   // The response handler table is per connection.
   HandlerTable response_handler_table_;
   boost::mutex response_handler_table_mutex_;

@@ -35,7 +35,7 @@ class EchoService2ClientImpl : public Hello::EchoService2 {
     response->set_echoed(2);
     response->set_text("client->" + request->question());
     response->set_close(false);
-    LOG(INFO) << "Echo2 called response with:" << response->text();
+    VLOG(1) << "Echo2 called response with:" << response->text();
     done->Run();
     ++called_;
     VLOG(2) << "CallEcho2Done response:" << response->text() << called_;
@@ -96,33 +96,36 @@ int main(int argc, char* argv[]) {
     while (1) {
       try {
         if (r->Connect()) {
-          LOG(INFO) << "Connect " << i;
+          VLOG(1) << "Connect " << i;
           break;
         }
       } catch (std::exception e) {
-        LOG(INFO) << "exception: " << e.what();
+        VLOG(0) << "exception: " << e.what();
       }
       sleep(1);
-      LOG(INFO) << "Retry " << i;
+      VLOG(0) << "Retry " << i;
     }
     boost::shared_ptr<Hello::EchoService2::Stub> s(new Hello::EchoService2::Stub(connections.back().get()));
     stubs.push_back(s);
   }
+  VLOG(0) << "All connected";
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     for (int j = 0; j < FLAGS_num_threads; ++j) {
       pool.PushTask(boost::bind(ClientThreadRun, stubs.back(), i * FLAGS_num_connections + j));
     }
   }
   int cnt = 0;
-  while (pcqueue->Pop()) {
-    LOG(WARNING) << "Get on pop" << cnt++;
+  while (1) {
+    pcqueue->Pop();
+    ++cnt;
+    VLOG(1) << "Get on pop";
     if (cnt == FLAGS_num_threads * FLAGS_num_connections) {
       break;
     }
   }
   VLOG(0) << "Disconnect";
   for (int i = 0; i < FLAGS_num_connections; ++i) {
-    VLOG(0) << "Disconnect " << i;
+    VLOG(1) << "Disconnect " << i;
     connections[i]->Flush(boost::bind(&ClientConnection::Disconnect,
                                       connections[i]));
   }
