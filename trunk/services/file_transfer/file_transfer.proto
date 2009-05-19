@@ -1,0 +1,20 @@
+package FileTransfer;
+message MetaData {
+  required string filename = 1;
+  required int32 threads = 2;
+};
+
+message Slice {
+  required string filename = 1;
+  required int32 start = 2;
+  required int32 end = 3;
+  required int64 md5 = 4;
+};
+
+message CheckPoint {
+  required MetaData meta = 1;
+  repeated group slices  = 2 {
+    required Slice slice = 3;
+    required bool finished = 4;
+  };
+};
