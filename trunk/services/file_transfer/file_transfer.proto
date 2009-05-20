@@ -1,7 +1,11 @@
 package FileTransfer;
 message MetaData {
-  required string filename = 1;
-  required int32 threads = 2;
+  required string host = 1;
+  required string port = 2;
+  required string filename = 3;
+  required int32 threads = 4;
+  // The md5 of the filename;
+  required int64 md5 = 5;
 };
 
 message Slice {
