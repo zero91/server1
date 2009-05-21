@@ -65,7 +65,7 @@ other_libs = [
 
 static_libs = other_libs + list(set(boost_libs))
 
-dynamic_libs = ['pthread', 'tcmalloc']
+dynamic_libs = ['ssl', 'pthread', 'tcmalloc']
 #dynamic_libs = ['pthread']
 
 link_flags = ' -Wl,-Bdynamic'
@@ -76,8 +76,8 @@ link_flags += ' -g'
 
 env = DefaultEnvironment()
 env['LINKCOM'] = "$LINK -o $TARGET $SOURCES $LINKFLAGS $_LIBDIRFLAGS $_LIBFLAGS -Wl,-Bdynamic"
-#env.Append(CPPFLAGS='-g')
-env.Append(CPPFLAGS='-O2')
+env.Append(CPPFLAGS='-g')
+#env.Append(CPPFLAGS='-O2')
 env.Append(CPPFLAGS=' -static')
 env.Append(LINKFLAGS=link_flags)
 env.Append(CPPPATH=cpp_path)
@@ -104,7 +104,7 @@ import __builtin__
 __builtin__.Test = Test
 __builtin__.ProtoLib = ProtoLib
 
-subdir=['base', 'server', 'proto', 'client', 'thread']
+subdir=['base', 'server', 'proto', 'client', 'thread', 'crypto']
 for x in subdir:
   target_dir='%s/%s' % (env['objroot'], x)
   SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)
