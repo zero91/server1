@@ -18,11 +18,10 @@
 #include "boost/thread.hpp"
 #include "server/shared_const_buffers.hpp"
 class Connection;
-class ConnectionStatus : public boost::enable_shared_from_this<ConnectionStatus> {
+class ConnectionStatus {
  public:
-  ConnectionStatus(Connection *connection) : connection_(connection), status_(IDLE), reader_(0), writter_(0), handler_(0) {
+  ConnectionStatus() : status_(IDLE), reader_(0), writter_(0), handler_(0) {
   }
-  inline ~ConnectionStatus();
   bool reading() const {
     return status_ & READING;
   }
@@ -115,14 +114,10 @@ class ConnectionStatus : public boost::enable_shared_from_this<ConnectionStatus>
     return handler_;
   }
 
-  Connection *connection() {
-    return connectin_;
-  }
-
   class ScopedExit {
    public:
-    ScopedExit(boost::shared_ptr<ConnectionStatus> status)
-      : status_(status) {
+    ScopedExit(Connection *connection, boost::shared_ptr<ConnectionStatus> status)
+      : connection_(connection), status_(status) {
     }
     inline ~ScopedExit();
    private:
@@ -146,7 +141,7 @@ class ConnectionStatus : public boost::enable_shared_from_this<ConnectionStatus>
 
 class Connection {
  public:
-  Connection() : status_(new ConnectionStatus(this)) {
+  Connection() : status_(new ConnectionStatus) {
   }
   void Close() {
     if (status_->closing()) {
@@ -157,7 +152,7 @@ class Connection {
       VLOG(2) << name() << " socket is null, may closed";
       return;
     }
-    socket_->get_io_service().post(boost::bind(&Connection::InternalClose, this));
+    socket_->get_io_service().post(boost::bind(&Connection::InternalClose, status_, this));
   }
 
   void set_socket(boost::asio::ip::tcp::socket *socket) {
@@ -203,7 +198,7 @@ class Connection {
   }
  protected:
   inline void Run(const boost::function0<void> &f);
-  inline void InternalClose();
+  static inline void InternalClose(boost::shared_ptr<ConnectionStatus> status, Connection *connection);
   inline void Shutdown();
   inline void RunDone();
   virtual void HandleRead(const boost::system::error_code& e, size_t bytes_transferred) = 0;
@@ -321,45 +316,45 @@ protected:
   boost::shared_ptr<Decoder> decoder_;
 };
 
-ConnectionStatus::~ConnectionStatus() {
-//  delete connection_;
-}
-
 ConnectionStatus::ScopedExit::~ScopedExit() {
-  Connection *connection = status_->connection();
-  VLOG(2) << connection->name() << " reader: " << status_->reader() << " writer: " << status_->writter() << " handler: " << status_->handler() << " status: " << status_->status();
+  if (status_->closed()) {
+    VLOG(2) << "~ScopedExit connection closed";
+    return;
+  }
+  VLOG(2) << connection_->name() << " reader: " << status_->reader() << " writer: " << status_->writter() << " handler: " << status_->handler() << " status: " << status_->status();
   if (status_->reader() == 0 && status_->handler() == 0 && status_->writter() == 0 && status_->shutdown()) {
-    VLOG(2) << "Shutdown : " << connection->name();
-    connection->Shutdown();
+    VLOG(2) << "Shutdown : " << connection_->name();
+    connection_->Shutdown();
   }
 }
 
-void Connection::InternalClose() {
-  VLOG(2) << name() << " : " << "InternalClose";
-  ConnectionStatus::ScopedExit exiter(this, status_);
-  if (status_->closing()) {
+void Connection::InternalClose(boost::shared_ptr<ConnectionStatus> status, Connection *connection) {
+  if (status->closing()) {
     VLOG(2) << "Call InternalClose but already in closing";
     return;
   }
+  status->set_closing();
+  status->set_shutdown();
+  ConnectionStatus::ScopedExit exiter(connection, status);
+  VLOG(2) << connection->name() << " : " << "InternalClose";
   boost::system::error_code ignored_ec;
-  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_receive, ignored_ec);
-  status_->set_closing();
-  status_->set_shutdown();
+  connection->socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_receive, ignored_ec);
 }
 
 void Connection::Shutdown() {
-  VLOG(2) << name() << " : " << "Connection Distroy " << this;
   if (status_->closed()) {
     VLOG(2) << "Call Shutdown but already closed";
   }
   status_->set_closed();
-  boost::system::error_code ignored_ec;
-  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored_ec);
   for (int i = static_cast<int>(close_handlers_.size()) - 1; i >= 0; --i) {
     if (!close_handlers_[i].empty()) {
       close_handlers_[i]();
     }
   }
+  boost::system::error_code ignored_ec;
+  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored_ec);
+  socket_->cancel();
+  socket_->close();
   delete this;
 }
 
