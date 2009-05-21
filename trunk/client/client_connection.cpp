@@ -8,10 +8,8 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "client/client_connection.hpp"
-bool ClientConnection::ConnectionClose() {
+static void ConnectionClose(ProtobufConnection *connection) {
   VLOG(2) << "ClientConnection::ConnectionClose";
-  delete connection_;
-  connection_ = NULL;
 }
 bool ClientConnection::Connect() {
   if (connection_ && connection_->IsConnected()) {
@@ -41,7 +39,7 @@ bool ClientConnection::Connect() {
   }
   connection_ = connection_template_.Clone();
   connection_->set_socket(socket);
-  connection_->push_close_handler(boost::bind(&ClientConnection::ConnectionClose, this));
+  connection_->push_close_handler(boost::bind(&ConnectionClose, connection_));
   if (out_threadpool_) {
     connection_->set_executor(out_threadpool_);
   } else {

@@ -1,0 +1,19 @@
+package FileTransfer;
+message MetaData {
+  required string host = 1;
+  required string port = 2;
+  required string filename = 3;
+  required int32 threads = 4;
+};
+
+message Slice {
+  required int32 index = 1;
+  optional int32 length = 2;
+  required int32 adler = 3;
+  required bool finished = 4 [default = false];
+};
+
+message CheckBook {
+  required MetaData meta = 1;
+  repeated Slice slices  = 2;
+};

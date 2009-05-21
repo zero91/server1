@@ -42,10 +42,10 @@ class EchoService2Impl : public Hello::EchoService2 {
     Hello::EchoRequest2  *request2 = new Hello::EchoRequest2;
     Hello::EchoResponse2 *response2 = new Hello::EchoResponse2;
     request2->set_question("server question" + boost::lexical_cast<string>(i_++));
-    RpcController controller2;
-    google::protobuf::Closure *done2 = google::protobuf::NewCallback(
-        this, &EchoService2Impl::CallEcho2Done, request2, response2);
-    stub.Echo2(&controller2,
+    boost::shared_ptr<RpcController> controller2(new RpcController);
+    google::protobuf::Closure *done2 = NewClosure(boost::bind(
+        &EchoService2Impl::CallEcho2Done, this, request2, response2, controller2));
+    stub.Echo2(controller2.get(),
                request2,
                response2,
                done2);
@@ -63,7 +63,8 @@ class EchoService2Impl : public Hello::EchoService2 {
     done->Run();
   }
   void CallEcho2Done(Hello::EchoRequest2 *request,
-                     Hello::EchoResponse2 *response) {
+                     Hello::EchoResponse2 *response,
+                     boost::shared_ptr<RpcController> controller) {
     static int cnt = 0;
     if (!response->text().empty()) {
       CHECK_EQ("client->" + request->question(), response->text());
@@ -123,7 +124,7 @@ class ListenTest : public testing::Test {
     echo_service_.reset();
   }
 
-  void ClientCallDone() {
+  void ClientCallDone(boost::shared_ptr<Hello::EchoResponse> response, boost::shared_ptr<RpcController> controller) {
     VLOG(2) << "ClientCallDone";
   }
 
@@ -161,17 +162,18 @@ class ListenTest : public testing::Test {
 };
 TEST_F(ListenTest, Test1) {
   Hello::EchoRequest request;
-  Hello::EchoResponse response;
+  boost::shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
   request.set_question("client question");
-  RpcController controller;
-  client_stub_->Echo1(&controller,
+  boost::shared_ptr<RpcController> controller(new RpcController);
+  client_stub_->Echo1(controller.get(),
                       &request,
-                      &response,
+                      response.get(),
                       NewClosure(boost::bind(
-                          &ListenTest::ClientCallDone, this)));
+                          &ListenTest::ClientCallDone, this, response, controller)));
   pcqueue_->Pop();
+  VLOG(2) << "Poped!!";
   client_connection_->Disconnect();
-  CHECK_EQ("server->" + request.question(), response.text());
+  CHECK_EQ("server->" + request.question(), response->text());
   CHECK_EQ(echo_service_->called(), 1);
 }
 TEST_F(ListenTest, MultiThreadTest1) {

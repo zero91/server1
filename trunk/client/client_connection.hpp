@@ -55,6 +55,7 @@ class ClientConnection : public FullDualChannel {
     if (connection_) {
       VLOG(2) << "Disconnect: " << connection_->name();
       connection_->Close();
+      connection_ = NULL;
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();
@@ -83,7 +84,6 @@ class ClientConnection : public FullDualChannel {
   }
 
   static const int kClientThreadPoolSize = 1;
-  bool ConnectionClose();
   ProtobufConnection *connection_;
   ProtobufConnection connection_template_;
   IOServicePool io_service_pool_;

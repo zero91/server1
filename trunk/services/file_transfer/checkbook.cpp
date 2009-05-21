@@ -1,34 +1,29 @@
-#include "services/file_transfer/file_transfer.hpp"
-#include <boost/iostreams/device/mapped_file.hpp>
-FileTransfer::FileTransfer() {
-}
-
-void FileTransfer::Start(int threads) {
-}
-
-FileTransfer *FileTransfer::Create(
-    const string &host, const string &port,
-    const string &filename, int threads) {
-  FileTransfer *file_tranfer = new FileTransfer;
-  FileTransfer::CheckBook *checkbook = &file_transfer.checkbook_;
+#include "services/file_transfer/checkbook.hpp"
+CheckBook *CheckBook::Create(
+    const string &host,
+    const string &port,
+    const string &filename) {
+  scoped_ptr<CheckBook> checkbook = new CheckBook;
   FileTransfer::MetaData *meta = checkbook->mutable_meta();
   meta->set_host(host);
   meta->set_port(port);
   meta->set_filename(filename);
-  meta->set_threads(threads);
   boost::filesystem::path p(filename, boost::filesystem::native);
   if (!boost::filesystem::exists(p)) {
     LOG(WARNING) << "Not find: " << filename;
+    delete checkbook;
     return NULL;
   }
   if (!boost::filesystem::is_regular(p)) {
     LOG(WARNING) << "Not a regular file: " << filename;
+    delete checkbook;
     return NULL;
   }
   uint32 adler = adler32(0L, Z_NULL, 0);
   boost::iostreams::mapped_file_source file;
   if (!file.open(filename)) {
     LOG(WARNING) << "Fail to open file: " << filename;
+    delete checkbook;
     return NULL;
   }
   const char *data = file.data();
@@ -49,15 +44,23 @@ FileTransfer *FileTransfer::Create(
     adler = adler32(adler, data, length);
     slice->set_adler(adler);
   }
-  return file_transfer_;
+  return checkbook_;
 }
 
-FileTransfer *FileTranfser::Resume(const string &checkbook) {
-  FileTransfer *file_tranfser = new FileTransfer;
-  fstream input(checkbook, ios::in | ios::binary);
-  if (!file_transfer_->check_book_.ParseFromIstream(&input)) {
-    LOG(WARNING) << "Fail to parse checkbook: " << checkbook;
+CheckBook *CheckBook::Load(const string &filename) {
+  CheckBook *checkbook = new CheckBook;
+  fstream input(filename, ios::in | ios::binary);
+  if (!check_book->ParseFromIstream(&input)) {
+    LOG(WARNING) << "Fail to parse checkbook: " << filename;
     return NULL;
   }
-  return file_transfer;
+}
+
+void CheckBook::Save(const string &filename) {
+  fstream output(filename, ios::out | ios::trunc | ios::binary);
+  if (SerializeToOstream(&output)) {
+    LOG(WARNING) << "Failed to save the CheckBook";
+    return;
+  }
+  return;
 }

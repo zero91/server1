@@ -18,10 +18,11 @@
 #include "boost/thread.hpp"
 #include "server/shared_const_buffers.hpp"
 class Connection;
-class ConnectionStatus {
+class ConnectionStatus : public boost::enable_shared_from_this<ConnectionStatus> {
  public:
-  ConnectionStatus() : status_(IDLE), reader_(0), writter_(0), handler_(0) {
+  ConnectionStatus(Connection *connection) : connection_(connection), status_(IDLE), reader_(0), writter_(0), handler_(0) {
   }
+  inline ~ConnectionStatus();
   bool reading() const {
     return status_ & READING;
   }
@@ -114,10 +115,14 @@ class ConnectionStatus {
     return handler_;
   }
 
+  Connection *connection() {
+    return connectin_;
+  }
+
   class ScopedExit {
    public:
-    ScopedExit(Connection *connection, boost::shared_ptr<ConnectionStatus> status)
-      : connection_(connection), status_(status) {
+    ScopedExit(boost::shared_ptr<ConnectionStatus> status)
+      : status_(status) {
     }
     inline ~ScopedExit();
    private:
@@ -136,11 +141,12 @@ class ConnectionStatus {
   };
   mutable int status_;
   mutable int reader_, writter_, handler_;
+  Connection *connection_;
 };
 
 class Connection {
  public:
-  Connection() : status_(new ConnectionStatus) {
+  Connection() : status_(new ConnectionStatus(this)) {
   }
   void Close() {
     if (status_->closing()) {
@@ -193,6 +199,7 @@ class Connection {
   virtual void ScheduleWrite() = 0;
   virtual void ScheduleFlush() = 0;
   virtual ~Connection() {
+    VLOG(2) << "Distroy connection: " << this;
   }
  protected:
   inline void Run(const boost::function0<void> &f);
@@ -314,35 +321,46 @@ protected:
   boost::shared_ptr<Decoder> decoder_;
 };
 
+ConnectionStatus::~ConnectionStatus() {
+//  delete connection_;
+}
+
 ConnectionStatus::ScopedExit::~ScopedExit() {
-  VLOG(2) << connection_->name() << " reader: " << status_->reader() << " writer: " << status_->writter() << " handler: " << status_->handler() << " status: " << status_->status();
+  Connection *connection = status_->connection();
+  VLOG(2) << connection->name() << " reader: " << status_->reader() << " writer: " << status_->writter() << " handler: " << status_->handler() << " status: " << status_->status();
   if (status_->reader() == 0 && status_->handler() == 0 && status_->writter() == 0 && status_->shutdown()) {
-    VLOG(2) << "Shutdown : " << connection_->name();
-    connection_->Shutdown();
+    VLOG(2) << "Shutdown : " << connection->name();
+    connection->Shutdown();
   }
 }
 
 void Connection::InternalClose() {
+  VLOG(2) << name() << " : " << "InternalClose";
   ConnectionStatus::ScopedExit exiter(this, status_);
   if (status_->closing()) {
     VLOG(2) << "Call InternalClose but already in closing";
     return;
   }
+  boost::system::error_code ignored_ec;
+  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_receive, ignored_ec);
   status_->set_closing();
-  socket_->close();
   status_->set_shutdown();
 }
 
 void Connection::Shutdown() {
   VLOG(2) << name() << " : " << "Connection Distroy " << this;
-  boost::system::error_code ignored_ec;
-  socket_.reset();
+  if (status_->closed()) {
+    VLOG(2) << "Call Shutdown but already closed";
+  }
   status_->set_closed();
+  boost::system::error_code ignored_ec;
+  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored_ec);
   for (int i = static_cast<int>(close_handlers_.size()) - 1; i >= 0; --i) {
     if (!close_handlers_[i].empty()) {
       close_handlers_[i]();
     }
   }
+  delete this;
 }
 
 

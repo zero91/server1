@@ -1,7 +1,8 @@
 Import('env')
-server_env  = env
-server_env.Append(LIBPATH=['$objroot/server'])
-server_env.Prepend(LIBS=['server', 'meta_pb'])
+server_env  = env.Copy()
+server_env.Append(LIBPATH=['$objroot/server', '$objroot/proto',
+'$objroot/client'])
+server_env.Prepend(LIBS=['server', 'meta_pb', 'hello_pb', 'client'])
 ProtoLib(server_env, 'meta')
 
 server_env.StaticLibrary(
@@ -22,5 +23,5 @@ server_env.Program(
   target = 'client0',
   source = ['posix_client.cpp'])
 
-Test(env, 'io_service_pool')
-Test(env, 'shared_const_buffers')
+Test(server_env, 'io_service_pool')
+Test(server_env, 'shared_const_buffers')

@@ -87,24 +87,25 @@ env.Append(LIBS=static_libs)
 Export('env')
 
 def ProtoLib(env, name) :
-  proto_info = env.ProtocolBuffer(name + '.proto')
-  env.StaticLibrary(
+  proto_env = env.Copy()
+  proto_info = proto_env.ProtocolBuffer(name + '.proto')
+  proto_env.StaticLibrary(
    target = name +'_pb',
    source = [
     proto_info[0].abspath,
     proto_info[1].abspath]
   )
 
-def Test(env, name):
-  env.Append(LIBS = ['gtest'])
-  env.Program(name + "_test.cpp")
-
+def Test(test_env, name):
+  local_env = test_env.Copy()
+  local_env.Append(LIBS = ['gtest'])
+  local_env.Program(name + "_test.cpp")
 
 import __builtin__
 __builtin__.Test = Test
 __builtin__.ProtoLib = ProtoLib
 
-subdir=['base', 'server', 'proto', 'client', 'thread', 'crypto']
+subdir=['base', 'services', 'server', 'proto', 'client', 'thread', 'crypto']
 for x in subdir:
   target_dir='%s/%s' % (env['objroot'], x)
   SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)

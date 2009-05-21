@@ -1,0 +1,4 @@
+Import('env')
+file_transfer_env = env.Copy()
+ProtoLib(file_transfer_env, 'checkbook')
+Test(file_transfer_env, 'checkbook')
