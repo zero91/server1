@@ -1,40 +1,68 @@
 #include "services/file_transfer/checkbook.hpp"
+#include "base/stringprintf.hpp"
+#include "net/mac_address.hpp"
+#include "crypto/evp.hpp"
+#include <boost/iostreams/device/mapped_file.hpp>
+#include <boost/filesystem.hpp>
+#include <fstream>
+#include <glog/logging.h>
+#include <zlib.h>
+#include <errno.h>
+#include <string.h>
 CheckBook *CheckBook::Create(
     const string &host,
     const string &port,
-    const string &filename) {
-  scoped_ptr<CheckBook> checkbook = new CheckBook;
+    const string &src_filename,
+    const string &dest_filename) {
+  CheckBook *checkbook;
+  checkbook = Load(InternalGetCheckBookSrcFileName(
+      host, port, src_filename, dest_filename));
+  if (checkbook != NULL) {
+    return checkbook;
+  }
+
+  checkbook = new CheckBook;
   FileTransfer::MetaData *meta = checkbook->mutable_meta();
   meta->set_host(host);
   meta->set_port(port);
-  meta->set_filename(filename);
-  boost::filesystem::path p(filename, boost::filesystem::native);
+  meta->set_src_filename(src_filename);
+  meta->set_dest_filename(dest_filename);
+  string mac_address = GetMacAddress();
+  meta->set_src_mac_address(mac_address);
+  boost::filesystem::path p(src_filename, boost::filesystem::native);
   if (!boost::filesystem::exists(p)) {
-    LOG(WARNING) << "Not find: " << filename;
+    LOG(WARNING) << "Not find: " << src_filename;
     delete checkbook;
     return NULL;
   }
   if (!boost::filesystem::is_regular(p)) {
-    LOG(WARNING) << "Not a regular file: " << filename;
+    LOG(WARNING) << "Not a regular file: " << src_filename;
     delete checkbook;
     return NULL;
   }
-  uint32 adler = adler32(0L, Z_NULL, 0);
   boost::iostreams::mapped_file_source file;
-  if (!file.open(filename)) {
-    LOG(WARNING) << "Fail to open file: " << filename;
+  file.open(src_filename);
+  if (!file.is_open()) {
+    LOG(WARNING) << "Fail to open file: " << src_filename;
     delete checkbook;
     return NULL;
   }
-  const char *data = file.data();
+  const Bytef *data = reinterpret_cast<const Bytef*>(file.data());
   int file_size = file.size();
   int slice_number = (file_size + kSliceSize - 1) / kSliceSize;
+  VLOG(2) << src_filename << " size: " << file_size
+          << " slice_size: " << kSliceSize
+          << " slice_number: " << slice_number;
   const int odd = file_size - (slice_number - 1) * kSliceSize;
   uint32 adler = adler32(0L, Z_NULL, 0);
   uint32 previous_adler = adler;
+  const string checkbook_dest_filename = checkbook->GetCheckBookDestFileName();
+  meta->set_checkbook_dest_filename(checkbook_dest_filename);
   for (int i = 0; i < slice_number; ++i) {
     FileTransfer::Slice *slice = checkbook->add_slice();
     slice->set_index(i);
+    slice->set_finished(false);
+    slice->set_checkbook_dest_filename(checkbook_dest_filename);
     int length = kSliceSize;
     if (i == slice_number - 1) {
       length = odd;
@@ -44,23 +72,61 @@ CheckBook *CheckBook::Create(
     adler = adler32(adler, data, length);
     slice->set_adler(adler);
   }
-  return checkbook_;
+  return checkbook;
 }
 
-CheckBook *CheckBook::Load(const string &filename) {
-  CheckBook *checkbook = new CheckBook;
-  fstream input(filename, ios::in | ios::binary);
-  if (!check_book->ParseFromIstream(&input)) {
-    LOG(WARNING) << "Fail to parse checkbook: " << filename;
+string CheckBook::GetCheckBookDestFileName() const {
+  scoped_ptr<EVP> evp(EVP::CreateMD5());
+  const FileTransfer::MetaData &meta = this->meta();
+  evp->Update(meta.src_mac_address());
+  evp->Update(meta.host());
+  evp->Update(meta.port());
+  evp->Update(meta.src_filename());
+  evp->Update(meta.dest_filename());
+  evp->Finish();
+  const string suffix = evp->digest<string>();
+  return meta.dest_filename() + "." + suffix;
+}
+
+string CheckBook::InternalGetCheckBookSrcFileName(
+      const string &host, const string &port,
+      const string &src_filename,
+      const string &dest_filename) {
+  scoped_ptr<EVP> evp(EVP::CreateMD5());
+  evp->Update(host);
+  evp->Update(port);
+  evp->Update(src_filename);
+  evp->Update(dest_filename);
+  evp->Finish();
+  return src_filename + "." + evp->digest<string>();
+}
+
+string CheckBook::GetCheckBookSrcFileName() const {
+  const FileTransfer::MetaData &meta = this->meta();
+  return InternalGetCheckBookSrcFileName(
+      meta.host(), meta.port(), meta.src_filename(), meta.dest_filename());
+}
+
+CheckBook *CheckBook::Load(const string &checkbook_filename) {
+  if (!boost::filesystem::exists(checkbook_filename)) {
     return NULL;
   }
+  CheckBook *checkbook = new CheckBook;
+  ifstream input(checkbook_filename.c_str(), ios::in | ios::binary);
+  if (!checkbook->ParseFromIstream(&input)) {
+    LOG(WARNING) << "Fail to parse checkbook: " << checkbook_filename;
+    return NULL;
+  }
+  return checkbook;
 }
 
-void CheckBook::Save(const string &filename) {
-  fstream output(filename, ios::out | ios::trunc | ios::binary);
-  if (SerializeToOstream(&output)) {
-    LOG(WARNING) << "Failed to save the CheckBook";
-    return;
+bool CheckBook::Save(const string &filename) {
+  ofstream output(filename.c_str(), ios::out | ios::trunc | ios::binary);
+  if (!SerializeToOstream(&output)) {
+    LOG(WARNING) << "Failed to save the CheckBook to:" << filename
+                 << " error: " << strerror(errno);
+    return false;
   }
-  return;
+  VLOG(2) << "Save checkbook: " << filename;
+  return true;
 }

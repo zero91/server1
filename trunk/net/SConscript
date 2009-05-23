@@ -1,0 +1,11 @@
+Import('env')
+net_env = env.Copy()
+net_env.Append(LIBPATH=['$objroot/net'])
+net_env.Prepend(LIBS=['net'])
+net_env.StaticLibrary(
+  target = 'net',
+  source = ['mac_address.hpp',
+            'linux/mac_address.cpp',
+   ]
+   )
+Test(net_env, 'mac_address')

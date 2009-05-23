@@ -5,4 +5,7 @@ StaticLibrary('base',
    'buffer.hpp',
    'closure.hpp',
    'lookup3.c',
-   'lookup8.c',])
+   'lookup8.c',
+   'stringprintf.hpp',
+   'stringprintf.cpp'])
+Test(env, 'stringprintf')

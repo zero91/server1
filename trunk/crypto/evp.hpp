@@ -79,7 +79,8 @@ string EVP::digest<string>() const {
     'b',
     'c',
     'd',
-    'e'};
+    'e',
+    'f',};
   char ret[33] = { 0 };
   for (int i = 0; i < md_len_; ++i) {
     const uint8 x = md_value_[i];

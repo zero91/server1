@@ -45,6 +45,20 @@ TEST_F(EvpTest, Test1) {
   ASSERT_EQ(buffer, js.substr(0, 8));
 }
 
+TEST_F(EvpTest, Test2) {
+  scoped_ptr<EVP> evp(EVP::CreateMD5());
+  EXPECT_TRUE(evp.get() != NULL);
+  evp->Update("00:21:70:80:e4:37");
+  evp->Update("localhost");
+  evp->Update("1234");
+  evp->Update("checkbooktest.1");
+  evp->Update("1112");
+  evp->Finish();
+  string is = evp->digest<string>();
+  VLOG(2) << is;
+  ASSERT_EQ(is.size(), strlen(md5hello));
+}
+
 int main(int argc, char **argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);

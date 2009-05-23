@@ -1,4 +1,13 @@
 Import('env')
 file_transfer_env = env.Copy()
+file_transfer_env.Append(LIBPATH=['$objroot/services/file_transfer',
+'$objroot/net'])
+file_transfer_env.Prepend(LIBS=['checkbook', 'checkbook_pb', 'net'])
 ProtoLib(file_transfer_env, 'checkbook')
+file_transfer_env.StaticLibrary(
+  target = 'checkbook',
+  source = ['checkbook.hpp',
+            'checkbook.cpp',
+   ]
+   )
 Test(file_transfer_env, 'checkbook')

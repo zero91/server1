@@ -105,7 +105,8 @@ import __builtin__
 __builtin__.Test = Test
 __builtin__.ProtoLib = ProtoLib
 
-subdir=['base', 'services', 'server', 'proto', 'client', 'thread', 'crypto']
+subdir=['base', 'services', 'server', 'proto', 'client', 'thread', 'crypto',
+'net']
 for x in subdir:
   target_dir='%s/%s' % (env['objroot'], x)
   SConscript('%s/SConscript' % x, build_dir=target_dir, duplicate=0)

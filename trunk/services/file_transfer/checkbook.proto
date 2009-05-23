@@ -2,18 +2,21 @@ package FileTransfer;
 message MetaData {
   required string host = 1;
   required string port = 2;
-  required string filename = 3;
-  required int32 threads = 4;
+  required string src_filename = 3;
+  required string dest_filename = 4;
+  required string src_mac_address = 5;
+  required string checkbook_dest_filename = 6;
 };
 
 message Slice {
-  required int32 index = 1;
-  optional int32 length = 2;
-  required int32 adler = 3;
-  required bool finished = 4 [default = false];
+  required string checkbook_dest_filename = 1;
+  required int32 index = 2;
+  optional int32 length = 3;
+  required uint32 adler = 4;
+  required bool finished = 5 [default = false];
 };
 
 message CheckBook {
   required MetaData meta = 1;
-  repeated Slice slices  = 2;
+  repeated Slice slice  = 5;
 };
