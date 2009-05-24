@@ -6,14 +6,18 @@ message MetaData {
   required string dest_filename = 4;
   required string src_mac_address = 5;
   required string checkbook_dest_filename = 6;
+  // The checkbook already synced with the server.
+  required bool synced_with_dest = 7;
 };
 
 message Slice {
   required string checkbook_dest_filename = 1;
   required int32 index = 2;
-  optional int32 length = 3;
-  required uint32 adler = 4;
-  required bool finished = 5 [default = false];
+  required int32 offset = 3;
+  required int32 length = 4;
+  required uint32 previous_adler = 5;
+  required uint32 adler = 6;
+  required bool finished = 7 [default = false];
 };
 
 message CheckBook {

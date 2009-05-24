@@ -37,20 +37,19 @@ class CheckBookTest : public testing::Test {
 };
 
 TEST_F(CheckBookTest, Test1) {
-  const int kFileSize = CheckBook::kSliceSize + 1;
+  const int kFileSize = CheckBook::GetSliceSize() + 1;
   CreateFile(kFileSize);
   scoped_ptr<CheckBook> checkbook(CheckBook::Create(
       "localhost", "1234", kTestFile, ""));
   EXPECT_TRUE(checkbook != NULL);
   ASSERT_EQ(checkbook->slice_size(), 2);
-  ASSERT_EQ(checkbook->slice(0).index(), 0);
-  ASSERT_EQ(checkbook->slice(0).has_length(), false);
+  ASSERT_EQ(checkbook->slice(0).offset(), 0);
   ASSERT_EQ(checkbook->slice(0).finished(), false);
   uint32 adler = adler32(0L, Z_NULL, 0);
   int k = 0;
   for (int i = 0; i < kFileSize ; ++i) {
     adler = adler32(adler, reinterpret_cast<const Bytef*>(&i), 1);
-    if (i == CheckBook::kSliceSize - 1 || i == kFileSize - 1) {
+    if (i == CheckBook::GetSliceSize() - 1 || i == kFileSize - 1) {
       ASSERT_EQ(checkbook->slice(k++).adler(), adler);
     }
   }
@@ -59,21 +58,22 @@ TEST_F(CheckBookTest, Test1) {
 }
 
 TEST_F(CheckBookTest, Test2) {
-  const int kFileSize = CheckBook::kSliceSize + 1;
+  const int kFileSize = CheckBook::GetSliceSize() + 1;
   CreateFile(kFileSize);
   scoped_ptr<CheckBook> checkbook(CheckBook::Create(
       "localhost", "1234", kTestFile, "111"));
   EXPECT_TRUE(checkbook != NULL);
   ASSERT_EQ(checkbook->slice_size(), 2);
-  ASSERT_EQ(checkbook->slice(0).index(), 0);
-  ASSERT_EQ(checkbook->slice(0).has_length(), false);
+  ASSERT_EQ(checkbook->slice(0).offset(), 0);
+  ASSERT_EQ(checkbook->slice(0).length(), CheckBook::GetSliceSize());
   ASSERT_EQ(checkbook->slice(0).finished(), false);
   ASSERT_EQ(checkbook->slice(1).finished(), false);
+  ASSERT_EQ(checkbook->slice(1).length(), 1);
   uint32 adler = adler32(0L, Z_NULL, 0);
   int k = 0;
   for (int i = 0; i < kFileSize ; ++i) {
     adler = adler32(adler, reinterpret_cast<const Bytef*>(&i), 1);
-    if (i == CheckBook::kSliceSize - 1 || i == kFileSize - 1) {
+    if (i == CheckBook::GetSliceSize() - 1 || i == kFileSize - 1) {
       ASSERT_EQ(checkbook->slice(k).checkbook_dest_filename(),
                 checkbook->meta().checkbook_dest_filename());
       ASSERT_EQ(checkbook->slice(k++).adler(), adler);

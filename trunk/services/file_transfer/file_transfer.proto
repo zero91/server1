@@ -1,1 +1,25 @@
 package FileTransfer;
+import "services/file_transfer/checkbook.proto";
+
+message SliceRequest {
+  required Slice slice = 1;
+  required string content = 2;
+};
+
+message SliceResponse {
+  required bool succeed = 1;
+  optional bool finished = 2;
+};
+
+message CheckBookRequest {
+  required CheckBook checkbook = 1;
+};
+
+message CheckBookResponse {
+  required bool succeed = 1;
+};
+
+service FileTransferService {
+  rpc ReceiveCheckBook(CheckBookRequest) returns (CheckBookResponse);
+  rpc ReceiveSlice(SliceRequest) returns (SliceResponse);
+};

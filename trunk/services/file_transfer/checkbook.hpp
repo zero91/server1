@@ -8,11 +8,21 @@ class CheckBook : public FileTransfer::CheckBook {
   static CheckBook *Create(
       const string &host, const string &port, const string &src_filename, const string &dest_filename);
   static CheckBook *Load(const string &checkbook_filename);
-  bool Save(const string &filename);
-  static const int kSliceSize = 640 * 1024;
-  string GetCheckBookDestFileName() const;
+  bool Save(const string &filename) {
+    Save(this, filename);
+  }
+  static bool Save(const FileTransfer::CheckBook *checkbook, const string &filename);
+  string GetCheckBookDestFileName() const {
+    return GetCheckBookDestFileName(&meta());
+  }
+  static string GetCheckBookDestFileName(
+      const FileTransfer::MetaData *meta);
   string GetCheckBookSrcFileName() const;
+  static int GetSliceSize() {
+    return kSliceSize;
+  }
  private:
+  static const int kSliceSize = 640 * 1024;
   static string InternalGetCheckBookSrcFileName(
       const string &host, const string &port,
       const string &src_filename,

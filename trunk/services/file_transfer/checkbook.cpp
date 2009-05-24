@@ -27,6 +27,7 @@ CheckBook *CheckBook::Create(
   meta->set_port(port);
   meta->set_src_filename(src_filename);
   meta->set_dest_filename(dest_filename);
+  meta->set_synced_with_dest(false);
   string mac_address = GetMacAddress();
   meta->set_src_mac_address(mac_address);
   boost::filesystem::path p(src_filename, boost::filesystem::native);
@@ -61,31 +62,32 @@ CheckBook *CheckBook::Create(
   for (int i = 0; i < slice_number; ++i) {
     FileTransfer::Slice *slice = checkbook->add_slice();
     slice->set_index(i);
+    slice->set_offset(i * kSliceSize);
     slice->set_finished(false);
     slice->set_checkbook_dest_filename(checkbook_dest_filename);
     int length = kSliceSize;
     if (i == slice_number - 1) {
       length = odd;
-      slice->set_length(length);
     }
+    slice->set_length(length);
     previous_adler = adler;
     adler = adler32(adler, data, length);
+    slice->set_previous_adler(previous_adler);
     slice->set_adler(adler);
   }
   return checkbook;
 }
 
-string CheckBook::GetCheckBookDestFileName() const {
+string CheckBook::GetCheckBookDestFileName(const FileTransfer::MetaData *meta) {
   scoped_ptr<EVP> evp(EVP::CreateMD5());
-  const FileTransfer::MetaData &meta = this->meta();
-  evp->Update(meta.src_mac_address());
-  evp->Update(meta.host());
-  evp->Update(meta.port());
-  evp->Update(meta.src_filename());
-  evp->Update(meta.dest_filename());
+  evp->Update(meta->src_mac_address());
+  evp->Update(meta->host());
+  evp->Update(meta->port());
+  evp->Update(meta->src_filename());
+  evp->Update(meta->dest_filename());
   evp->Finish();
   const string suffix = evp->digest<string>();
-  return meta.dest_filename() + "." + suffix;
+  return meta->dest_filename() + "." + suffix;
 }
 
 string CheckBook::InternalGetCheckBookSrcFileName(
@@ -120,9 +122,10 @@ CheckBook *CheckBook::Load(const string &checkbook_filename) {
   return checkbook;
 }
 
-bool CheckBook::Save(const string &filename) {
+bool CheckBook::Save(const FileTransfer::CheckBook *checkbook,
+                     const string &filename) {
   ofstream output(filename.c_str(), ios::out | ios::trunc | ios::binary);
-  if (!SerializeToOstream(&output)) {
+  if (!checkbook->SerializeToOstream(&output)) {
     LOG(WARNING) << "Failed to save the CheckBook to:" << filename
                  << " error: " << strerror(errno);
     return false;
