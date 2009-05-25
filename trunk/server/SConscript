@@ -13,7 +13,8 @@ server_env.StaticLibrary(
    'protobuf_connection.cpp',
    'protobuf_connection.hpp',
    'server.cpp',
-   'server.hpp'],
+   'server.hpp',
+   '$objroot/server/libmeta_pb.a'],
    )
 server_env.Program(
   target = 'server0',

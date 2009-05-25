@@ -242,6 +242,33 @@ TEST_F(FileTransferTest, Test3) {
   boost::filesystem::remove(dest_path);
 }
 
+TEST_F(FileTransferTest, Test4) {
+  const int kFileSize = CheckBook::GetSliceSize() + 1;
+  string content;
+  CreateFile(kFileSize, &content);
+  const string dest_filename = "111";
+  // Send the checkbook.
+  scoped_ptr<CheckBook> checkbook(CheckBook::Create(
+      "localhost", "1234", kTestFile, dest_filename));
+  boost::filesystem::path checkbook_dest_filename(FLAGS_doc_root);
+  checkbook_dest_filename /= checkbook->GetCheckBookDestFileName();
+  RpcController controller;
+  ASSERT_FALSE(boost::filesystem::exists(checkbook_dest_filename));
+  FileTransfer::SliceRequest slice_request;
+  FileTransfer::SliceResponse slice_response;
+  slice_request.mutable_slice()->CopyFrom(checkbook->slice(0));
+  slice_request.mutable_content()->assign(
+      content.c_str(), CheckBook::GetSliceSize());
+  controller.Reset();
+  CHECK(!client_connection_->IsConnected());
+  CHECK(client_connection_->Connect());
+  client_stub_->ReceiveSlice(&controller, &slice_request, &slice_response, NULL);
+  controller.Wait();
+  client_connection_->Disconnect();
+  EXPECT_FALSE(slice_response.succeed());
+  boost::filesystem::remove(kTestFile);
+}
+
 int main(int argc, char **argv) {
   FLAGS_v = 2;
   FLAGS_logtostderr = true;

@@ -265,6 +265,13 @@ void FileTransferServiceImpl::ReceiveSlice(
   const string checkbook_dest_filename = request->slice().checkbook_dest_filename();
   VLOG(2) << "Receive slice, checkbook: " << checkbook_dest_filename;
   boost::shared_ptr<TransferInfo> transfer_info = GetTransferInfo(connection, checkbook_dest_filename);
+  if (transfer_info.get() == NULL) {
+    response->set_succeed(false);
+    LOG(WARNING) << "Fail to get checkbook for slice: " << request->slice().index();
+    done->Run();
+    return;
+  }
+
   if (!SaveSliceRequest(request)) {
     LOG(WARNING) << "Fail to save slice: " << request->slice().index();
     response->set_succeed(false);

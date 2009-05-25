@@ -221,7 +221,7 @@ class ConnectionReadHandler {
   ConnectionReadHandler(Connection* connection, boost::shared_ptr<ConnectionStatus> status)
     : connection_(connection), status_(status) {
   }
-  virtual void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
+  void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
     VLOG(2) << "ConnectionReadHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
     ConnectionStatus::ScopedExit exiter(connection_, status_);
     status_->DecreaseReaderCounter();
@@ -233,9 +233,14 @@ class ConnectionReadHandler {
         VLOG(2) << "non error but connection is closed";
       }
     } else {
-      VLOG(2) << "error then closing " << connection_->name();
-      status_->clear_reading();
-      connection_->Close();
+      if (!status_->closed()) {
+        VLOG(2) << "error then closing " << connection_->name();
+        status_->clear_reading();
+        connection_->Close();
+      } else {
+        status_->clear_reading();
+        VLOG(2) << "non error but connection is closed";
+      }
     }
   }
  private:
@@ -260,9 +265,14 @@ class ConnectionWriteHandler {
         VLOG(2) << "non error but connection is already closed";
       }
     } else {
-      VLOG(2) << "error then closing " << connection_->name();
-      status_->clear_writting();
-      connection_->Close();
+      if (!status_->closed()) {
+        VLOG(2) << "error then closing " << connection_->name();
+        status_->clear_writting();
+        connection_->Close();
+      } else {
+        status_->clear_reading();
+        VLOG(2) << "non error but connection is closed";
+      }
     }
   }
  private:
