@@ -9,5 +9,5 @@ message MetaData {
   // the request should bring the response identify.
   optional int64 response_identify = 3;
 
-  required string content = 4;
+  required bytes content = 4;
 };

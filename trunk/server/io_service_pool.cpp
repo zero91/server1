@@ -49,7 +49,7 @@ void IOServicePool::Stop() {
     work_[i].reset();
   }
   threadpool_.Stop();
-//  work_.clear();
+  work_.clear();
 //  io_services_.clear();
 }
 

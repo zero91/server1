@@ -22,7 +22,7 @@ static const char *kTestFile = "checkbooktest.1";
 
 class CheckBookTest : public testing::Test {
  public:
-  void CreateFile(int file_size) {
+  void CreateFile(int file_size, string *content = NULL) {
     boost::iostreams::mapped_file_params p(kTestFile);
     p.mode = std::ios_base::out | std::ios_base::trunc;
     p.new_file_size = file_size;
@@ -30,7 +30,10 @@ class CheckBookTest : public testing::Test {
     out.open(p);
     CHECK(out.is_open());
     for (int i = 0; i < file_size; ++i) {
-      out.data()[i] = i;
+      out.data()[i] = static_cast<char>(i);
+      if (content != NULL) {
+        content->push_back(static_cast<char>(i));
+      }
     }
     out.close();
   }
@@ -59,7 +62,8 @@ TEST_F(CheckBookTest, Test1) {
 
 TEST_F(CheckBookTest, Test2) {
   const int kFileSize = CheckBook::GetSliceSize() + 1;
-  CreateFile(kFileSize);
+  string content;
+  CreateFile(kFileSize, &content);
   scoped_ptr<CheckBook> checkbook(CheckBook::Create(
       "localhost", "1234", kTestFile, "111"));
   EXPECT_TRUE(checkbook != NULL);
@@ -70,6 +74,14 @@ TEST_F(CheckBookTest, Test2) {
   ASSERT_EQ(checkbook->slice(1).finished(), false);
   ASSERT_EQ(checkbook->slice(1).length(), 1);
   uint32 adler = adler32(0L, Z_NULL, 0);
+  uint32 slice0_adler = adler32(
+      adler,
+      reinterpret_cast<const Bytef*>(content.c_str()),
+      CheckBook::GetSliceSize());
+  ASSERT_EQ(checkbook->slice(0).adler(), slice0_adler);
+  ASSERT_EQ(checkbook->slice(0).previous_adler(), adler);
+
+
   int k = 0;
   for (int i = 0; i < kFileSize ; ++i) {
     adler = adler32(adler, reinterpret_cast<const Bytef*>(&i), 1);

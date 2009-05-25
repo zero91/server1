@@ -87,6 +87,7 @@ class ConnectionStatus {
   void DecreaseReaderCounter() {
     --reader_;
   }
+
   void IncreaseReaderCounter() {
     ++reader_;
   }
@@ -197,6 +198,7 @@ class Connection {
     VLOG(2) << "Distroy connection: " << this;
   }
  protected:
+  inline void Cleanup();
   inline void Run(const boost::function0<void> &f);
   static inline void InternalClose(boost::shared_ptr<ConnectionStatus> status, Connection *connection);
   inline void Shutdown();
@@ -354,6 +356,10 @@ void Connection::Shutdown() {
   boost::system::error_code ignored_ec;
   socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored_ec);
   socket_->cancel();
+  socket_->get_io_service().post(boost::bind(&Connection::Cleanup, this));
+}
+
+void Connection::Cleanup() {
   socket_->close();
   delete this;
 }
@@ -386,8 +392,7 @@ template <class Decoder>
 void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
                                          size_t bytes_transferred) {
   VLOG(2) << "Handle read, e: " << e.message() << ", bytes: "
-    << bytes_transferred << " content: "
-    << string(buffer_.data(), bytes_transferred);
+    << bytes_transferred;
   CHECK(status_->reading());
   boost::tribool result;
   const char *start = buffer_.data();
@@ -447,7 +452,7 @@ void ConnectionImpl<Decoder>::ScheduleRead() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleRead() {
-  VLOG(2) << name() << " : " << " ScheduleRead status: " << status_->status();
+  VLOG(2) << name() << " : " << " Internal ScheduleRead status: " << status_->status();
   if (status_->reading()) {
     VLOG(2) << name() << " : " << "Alreading in reading status";
     return;

@@ -30,6 +30,10 @@ class ClientConnection : public FullDualChannel {
     if (connection_) {
       connection_->CallMethod(method, controller, request, response, done);
     } else {
+      RpcController *rpc_controller = dynamic_cast<RpcController*>(
+          controller);
+      rpc_controller->SetFailed("Connection is NULL");
+      rpc_controller->Notify();
       LOG(WARNING) << "Callmethod but connection is null";
     }
   }

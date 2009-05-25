@@ -3,7 +3,7 @@ import "services/file_transfer/checkbook.proto";
 
 message SliceRequest {
   required Slice slice = 1;
-  required string content = 2;
+  required bytes content = 2;
 };
 
 message SliceResponse {

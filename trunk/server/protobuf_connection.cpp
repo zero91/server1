@@ -21,7 +21,7 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
   }
   string *header = new string(boost::lexical_cast<string>(content->size()));
   header->push_back(':');
-  VLOG(2) << "Encode Message, header: " << *header << " content: " << *content
+  VLOG(2) << "Encode Message, header: " << *header
           << " content size: " << content->size();
   return make_pair(header, content);
 };
@@ -91,7 +91,6 @@ boost::tribool ProtobufDecoder::Consume(char input) {
           LOG(WARNING) << "request meta data should have response identify field";
           return false;
         }
-        VLOG(2) << "Meta: " << meta_.DebugString();
         if (meta_.content().empty()) {
           LOG(WARNING) << "Meta without content: " << meta_.DebugString();
           return false;
@@ -179,7 +178,6 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
 
 void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  VLOG(2) << name() << " : " << "Handle request: " << meta.DebugString();
   HandlerTable::value_type::second_type handler;
   HandlerTable::iterator it = handler_table_->find(meta.identify());
   if (it != handler_table_->end()) {

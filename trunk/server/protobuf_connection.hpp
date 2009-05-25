@@ -19,11 +19,15 @@
 #include <protobuf/message.h>
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
+#include "thread/notifier.hpp"
 class ProtobufConnection;
 class RpcController : virtual public google::protobuf::RpcController {
  public:
+  RpcController() : notifier_(new Notifier) {
+  }
   void Reset() {
     failed_.clear();
+    notifier_.reset(new Notifier);
   }
   void SetFailed(const string &failed) {
     failed_ = failed;
@@ -42,24 +46,18 @@ class RpcController : virtual public google::protobuf::RpcController {
   void NotifyOnCancel(google::protobuf::Closure *callback) {
   }
   bool Wait() {
-    return Wait(LONG_MAX);
+    return notifier_->Wait();
   }
   bool Wait(int timeout_ms) {
-    boost::mutex::scoped_lock locker(mutex_);
-    bool ret = response_cond_.timed_wait(locker, boost::posix_time::milliseconds(timeout_ms));
-    if (!ret) {
-      SetFailed("Timeout");
-    }
-    return ret;
+    return notifier_->Wait(timeout_ms);
   }
   void Notify() {
-    response_cond_.notify_all();
+    notifier_->Notify();
   }
  private:
   string failed_;
   bool responsed_;
-  boost::condition response_cond_;
-  boost::mutex mutex_;
+  boost::shared_ptr<Notifier> notifier_;
 };
 
 class FullDualChannel : virtual public RpcController,
