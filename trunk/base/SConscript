@@ -9,3 +9,4 @@ StaticLibrary('base',
    'stringprintf.hpp',
    'stringprintf.cpp'])
 Test(env, 'stringprintf')
+Test(env, 'release_proxy')

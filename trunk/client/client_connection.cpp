@@ -8,8 +8,11 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "client/client_connection.hpp"
-static void ConnectionClose(ProtobufConnection *connection) {
+void ClientConnection::ConnectionClose(ProtobufConnection *connection) {
+  mutex_.lock();
+  connection_ = NULL;
   VLOG(2) << "ClientConnection::ConnectionClose";
+  mutex_.unlock();
 }
 bool ClientConnection::Connect() {
   if (connection_ && connection_->IsConnected()) {
@@ -39,7 +42,9 @@ bool ClientConnection::Connect() {
   }
   connection_ = connection_template_.Clone();
   connection_->set_socket(socket);
-  connection_->push_close_handler(boost::bind(&ConnectionClose, connection_));
+  connection_proxy_.reset(new ReleaseProxy);
+  boost::function0<void> h = boost::bind(&ClientConnection::ConnectionClose, this, connection_);
+  connection_->push_close_handler(connection_proxy_->proxy(h));
   if (out_threadpool_) {
     connection_->set_executor(out_threadpool_);
   } else {

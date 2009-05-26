@@ -9,8 +9,10 @@
 
 #ifndef CLIENT_CONNECTION_HPP
 #define CLIENT_CONNECTION_HPP
+#include <boost/thread/shared_mutex.hpp>
 #include "server/protobuf_connection.hpp"
 #include "server/io_service_pool.hpp"
+#include "base/release_proxy.hpp"
 class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
@@ -27,6 +29,7 @@ class ClientConnection : public FullDualChannel {
                           const google::protobuf::Message *request,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) {
+    mutex_.lock_shared();
     if (connection_) {
       connection_->CallMethod(method, controller, request, response, done);
     } else {
@@ -36,6 +39,7 @@ class ClientConnection : public FullDualChannel {
       rpc_controller->Notify();
       LOG(WARNING) << "Callmethod but connection is null";
     }
+    mutex_.unlock_shared();
   }
 
   void set_name(const string &name) {
@@ -77,9 +81,11 @@ class ClientConnection : public FullDualChannel {
     connection_->ScheduleFlush();
   }
   ~ClientConnection() {
+    connection_proxy_->Invalid();
     VLOG(2) << "~ClientConnection";
   }
  private:
+  void ConnectionClose(ProtobufConnection *connection);
   boost::asio::io_service &GetIOService() {
     if (out_io_service_pool_) {
       return out_io_service_pool_->get_io_service();
@@ -95,5 +101,7 @@ class ClientConnection : public FullDualChannel {
   ThreadPool *out_threadpool_;
   IOServicePool *out_io_service_pool_;
   string server_, port_;
+  boost::shared_mutex mutex_;
+  boost::shared_ptr<ReleaseProxy>  connection_proxy_;
 };
 #endif  // CLIENT_CONNECTION_HPP

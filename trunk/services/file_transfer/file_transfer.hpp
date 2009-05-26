@@ -52,7 +52,7 @@ class FileTransfer {
   };
 
  public:
-  void Start(int threads);
+  void Start();
   void Stop();
   void set_finish_listener(const boost::function0<void> h) {
     finish_handler_ = h;
