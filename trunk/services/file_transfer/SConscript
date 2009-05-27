@@ -14,6 +14,13 @@ file_transfer_env.StaticLibrary(
    )
 
 file_transfer_env.StaticLibrary(
+  target = 'file_transfer_client',
+  source = ['file_transfer_client.hpp',
+            'file_transfer_client.cpp',
+   ]
+   )
+
+file_transfer_env.StaticLibrary(
   target = 'file_transfer_service',
   source = ['file_transfer_service.hpp',
             'file_transfer_service.cpp',

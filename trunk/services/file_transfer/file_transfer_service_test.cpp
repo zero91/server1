@@ -113,10 +113,10 @@ TEST_F(FileTransferTest, Test1) {
       "localhost", "1234", kTestFile, "111"));
   const string dest_filename = FLAGS_doc_root + "/" + checkbook->GetCheckBookDestFileName();
   ASSERT_FALSE(boost::filesystem::exists(dest_filename));
-  FileTransfer::CheckBookRequest checkbook_request;
+  FileTransfer::CheckBook checkbook_request;
   FileTransfer::CheckBookResponse checkbook_response;
   RpcController controller;
-  checkbook_request.mutable_checkbook()->CopyFrom(*checkbook.get());
+  checkbook_request.CopyFrom(*checkbook.get());
   CHECK(!client_connection_->IsConnected());
   CHECK(client_connection_->Connect());
   client_stub_->ReceiveCheckBook(&controller,
@@ -141,10 +141,10 @@ TEST_F(FileTransferTest, Test2) {
   boost::filesystem::path checkbook_dest_filename(FLAGS_doc_root);
   checkbook_dest_filename /= checkbook->GetCheckBookDestFileName();
   ASSERT_FALSE(boost::filesystem::exists(checkbook_dest_filename));
-  FileTransfer::CheckBookRequest checkbook_request;
+  FileTransfer::CheckBook checkbook_request;
   FileTransfer::CheckBookResponse checkbook_response;
   RpcController controller;
-  checkbook_request.mutable_checkbook()->CopyFrom(*checkbook.get());
+  checkbook_request.CopyFrom(*checkbook.get());
   CHECK(!client_connection_->IsConnected());
   CHECK(client_connection_->Connect());
   client_stub_->ReceiveCheckBook(&controller,
@@ -199,10 +199,10 @@ TEST_F(FileTransferTest, Test3) {
   boost::filesystem::path checkbook_dest_filename(FLAGS_doc_root);
   checkbook_dest_filename /= checkbook->GetCheckBookDestFileName();
   ASSERT_FALSE(boost::filesystem::exists(checkbook_dest_filename));
-  FileTransfer::CheckBookRequest checkbook_request;
+  FileTransfer::CheckBook checkbook_request;
   FileTransfer::CheckBookResponse checkbook_response;
   RpcController controller;
-  checkbook_request.mutable_checkbook()->CopyFrom(*checkbook.get());
+  checkbook_request.CopyFrom(*checkbook.get());
   CHECK(!client_connection_->IsConnected());
   CHECK(client_connection_->Connect());
   client_stub_->ReceiveCheckBook(&controller,

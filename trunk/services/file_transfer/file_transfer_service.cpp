@@ -159,10 +159,10 @@ bool FileTransferServiceImpl::SaveSliceRequest(
 
 void FileTransferServiceImpl::ReceiveCheckBook(
     google::protobuf::RpcController *controller,
-    const FileTransfer::CheckBookRequest *request,
+    const FileTransfer::CheckBook *request,
     FileTransfer::CheckBookResponse *response,
     google::protobuf::Closure *done) {
-  const FileTransfer::CheckBook &checkbook = request->checkbook();
+  const FileTransfer::CheckBook &checkbook = *request;
   boost::filesystem::path dest_checkbook_filename(doc_root_);
   dest_checkbook_filename /= CheckBook::GetCheckBookDestFileName(&checkbook.meta());
   VLOG(2) << "Receive checkbook: " << dest_checkbook_filename;

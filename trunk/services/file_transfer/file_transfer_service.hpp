@@ -4,6 +4,7 @@
 #include "base/hash.hpp"
 #include <boost/thread/mutex.hpp>
 #include "server/protobuf_connection.hpp"
+#include "services/file_transfer/checkbook.hpp"
 #include "services/file_transfer/file_transfer.pb.h"
 class TransferInfo;
 class Connection;
@@ -12,7 +13,7 @@ class FileTransferServiceImpl : public FileTransfer::FileTransferService {
   FileTransferServiceImpl(const string &doc_root) : doc_root_(doc_root) {
   }
   void ReceiveCheckBook(google::protobuf::RpcController *controller,
-                        const FileTransfer::CheckBookRequest *request,
+                        const FileTransfer::CheckBook *request,
                         FileTransfer::CheckBookResponse *response,
                         google::protobuf::Closure *done);
   void ReceiveSlice(google::protobuf::RpcController *controller,

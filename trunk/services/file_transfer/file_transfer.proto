@@ -11,15 +11,11 @@ message SliceResponse {
   optional bool finished = 2;
 };
 
-message CheckBookRequest {
-  required CheckBook checkbook = 1;
-};
-
 message CheckBookResponse {
   required bool succeed = 1;
 };
 
 service FileTransferService {
-  rpc ReceiveCheckBook(CheckBookRequest) returns (CheckBookResponse);
+  rpc ReceiveCheckBook(CheckBook) returns (CheckBookResponse);
   rpc ReceiveSlice(SliceRequest) returns (SliceResponse);
 };
