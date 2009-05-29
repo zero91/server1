@@ -43,10 +43,6 @@ template<> struct hash<string> {
   }
 };
 
-template<class T> struct hash<boost::shared_ptr<T> > {
-    size_t operator()(const boost::shared_ptr<T> &x) const { return reinterpret_cast<size_t>(x.get()); }
-};
-
 template<class T> struct hash<T*> {
     size_t operator()(T *x) const { return reinterpret_cast<size_t>(x); }
 };

@@ -16,36 +16,37 @@
 class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
-    : connection_(new ProtobufConnection), io_service_pool_("ClientIOService", 1),
+    : connection_(NULL), io_service_pool_("ClientIOService", 1),
       threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
       VLOG(2) << "Constructor client connection";
-    connection_->set_name(server + "::" + port + "::Client");
+    connection_template_.set_name(server + "::" + port + "::Client");
   }
   virtual bool RegisterService(google::protobuf::Service *service) {
-    return connection_->RegisterService(service);
+    return connection_template_.RegisterService(service);
   }
   virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
                           google::protobuf::RpcController *controller,
                           const google::protobuf::Message *request,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) {
-    if (connection_->IsConnected()) {
+    mutex_.lock_shared();
+    if (connection_) {
       connection_->CallMethod(method, controller, request, response, done);
     } else {
       RpcController *rpc_controller = dynamic_cast<RpcController*>(
           controller);
-      string fail("Connection is disconnected");
-      rpc_controller->SetFailed(fail);
+      rpc_controller->SetFailed("Connection is NULL");
       rpc_controller->Notify();
-      LOG(WARNING) << "CallMethod but " << fail;
+      LOG(WARNING) << "Callmethod but connection is null";
     }
+    mutex_.unlock_shared();
   }
 
   void set_name(const string &name) {
-    connection_->set_name(name);
+    connection_template_.set_name(name);
   }
   const string name() {
-    return connection_->name();
+    return connection_template_.name();
   }
   void set_io_service_pool(IOServicePool *io_service_pool) {
     out_io_service_pool_ = io_service_pool;
@@ -55,17 +56,14 @@ class ClientConnection : public FullDualChannel {
     out_threadpool_ = out_threadpool;
   }
   bool IsConnected() {
-    return connection_->IsConnected();
+    return connection_ && connection_->IsConnected();
   }
   bool Connect();
   void Disconnect() {
-    if (!connection_->IsConnected()) {
-      VLOG(2) << "Disconnect: " << connection_->name() << " but is disconnected";
-    } else {
+    if (connection_) {
       VLOG(2) << "Disconnect: " << connection_->name();
-      boost::shared_ptr<Notifier> n(new Notifier);
-      connection_->Close(n->notify_handler());
-      n->Wait();
+      connection_->Close();
+      connection_ = NULL;
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();
@@ -75,17 +73,19 @@ class ClientConnection : public FullDualChannel {
     }
   }
   void Flush(const boost::function0<void> &h) {
-    if (!connection_->IsConnected()) {
-      VLOG(2) << "Flush " << connection_->name() << " but is disconnected";
+    if (connection_ == NULL) {
+      VLOG(2) << "Connection is null";
       return;
     }
     connection_->set_flush_handler(h);
     connection_->ScheduleFlush();
   }
   ~ClientConnection() {
+    connection_proxy_->Invalid();
     VLOG(2) << "~ClientConnection";
   }
  private:
+  void ConnectionClose(ProtobufConnection *connection);
   boost::asio::io_service &GetIOService() {
     if (out_io_service_pool_) {
       return out_io_service_pool_->get_io_service();
@@ -94,11 +94,14 @@ class ClientConnection : public FullDualChannel {
   }
 
   static const int kClientThreadPoolSize = 1;
-  boost::shared_ptr<ProtobufConnection> connection_;
+  ProtobufConnection *connection_;
+  ProtobufConnection connection_template_;
   IOServicePool io_service_pool_;
   ThreadPool threadpool_;
   ThreadPool *out_threadpool_;
   IOServicePool *out_io_service_pool_;
   string server_, port_;
+  boost::shared_mutex mutex_;
+  boost::shared_ptr<ReleaseProxy>  connection_proxy_;
 };
 #endif  // CLIENT_CONNECTION_HPP

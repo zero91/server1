@@ -30,7 +30,7 @@ void IOServicePool::Start() {
   work_.reserve(pool_size_);
   io_services_.reserve(pool_size_);
   for (size_t i = 0; i < pool_size_; ++i) {
-    boost::shared_ptr<boost::asio::io_service> io_service(new boost::asio::io_service(1));
+    boost::shared_ptr<boost::asio::io_service> io_service(new boost::asio::io_service);
     io_services_.push_back(io_service);
     boost::shared_ptr<boost::asio::io_service::work> worker(new boost::asio::io_service::work(*io_service));
     work_.push_back(worker);

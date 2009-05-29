@@ -8,11 +8,18 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "client/client_connection.hpp"
+void ClientConnection::ConnectionClose(ProtobufConnection *connection) {
+  mutex_.lock();
+  connection_ = NULL;
+  VLOG(2) << "ClientConnection::ConnectionClose";
+  mutex_.unlock();
+}
 bool ClientConnection::Connect() {
-  if (connection_->IsConnected()) {
+  if (connection_ && connection_->IsConnected()) {
     LOG(WARNING) << "Connect but IsConnected";
     return true;
   }
+  Disconnect();
   if (out_threadpool_  == NULL) threadpool_.Start();
   if (out_io_service_pool_ == NULL) io_service_pool_.Start();
   boost::asio::ip::tcp::resolver::query query(server_, port_);
@@ -33,7 +40,11 @@ bool ClientConnection::Connect() {
     LOG(WARNING) << ":fail to connect, error:"  << error.message();
     return false;
   }
+  connection_ = connection_template_.Clone();
   connection_->set_socket(socket);
+  connection_proxy_.reset(new ReleaseProxy);
+  boost::function0<void> h = boost::bind(&ClientConnection::ConnectionClose, this, connection_);
+  connection_->push_close_handler(connection_proxy_->proxy(h));
   if (out_threadpool_) {
     connection_->set_executor(out_threadpool_);
   } else {
