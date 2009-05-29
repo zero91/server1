@@ -20,7 +20,7 @@
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
 #include "thread/notifier.hpp"
-class ProtobufConnection;
+class ProtobufConnectionImpl;
 class RpcController : virtual public google::protobuf::RpcController {
  public:
   RpcController() : notifier_(new Notifier) {
@@ -71,89 +71,15 @@ class FullDualChannel : virtual public RpcController,
                           google::protobuf::Closure *done) = 0;
 };
 
-class ProtobufDecoder {
+class ProtobufConnection : public Connection, virtual public FullDualChannel {
  public:
-  /// Construct ready to parse the request method.
-  ProtobufDecoder() : state_(Start) {
-  };
-
-  /// Parse some data. The boost::tribool return value is true when a complete request
-  /// has been parsed, false if the data is invalid, indeterminate when more
-  /// data is required. The InputIterator return value indicates how much of the
-  /// input has been consumed.
-  template <typename InputIterator>
-  boost::tuple<boost::tribool, InputIterator> Decode(
-      InputIterator begin, InputIterator end) {
-    while (begin != end) {
-      boost::tribool result = Consume(*begin++);
-      if (result || !result) {
-        return boost::make_tuple(result, begin);
-      }
-    }
-    boost::tribool result = boost::indeterminate;
-    return boost::make_tuple(result, begin);
-  }
-
-  const ProtobufLineFormat::MetaData &meta() const {
-    return meta_;
-  }
-private:
-  /// Handle the next character of input.
-  boost::tribool Consume(char input);
-
-  /// The current state of the parser.
-  enum State {
-    Start,
-    Length,
-    Content,
-    End
-  } state_;
-
-  string length_store_;
-  int length_;
-  Buffer<char> content_;
-  ProtobufLineFormat::MetaData meta_;
-};
-
-class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual public FullDualChannel {
- private:
-   typedef hash_map<uint64, boost::function2<void, boost::shared_ptr<const ProtobufDecoder>,
-          ProtobufConnection*> > HandlerTable;
- public:
-  explicit ProtobufConnection(int timeout) : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(timeout) {
-    VLOG(2) << "New protobuf connection" << this << " timeout: " << timeout;
-  }
-
-  ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(0) {
-    VLOG(2) << "New protobuf connection" << this;
-  }
-
-  ~ProtobufConnection();
-
-  ProtobufConnection* Clone();
-
-  // Non thread safe.
+  explicit ProtobufConnection(int timeout);
+  ProtobufConnection();
   bool RegisterService(google::protobuf::Service *service);
-  // Thread safe.
   void CallMethod(const google::protobuf::MethodDescriptor *method,
                   google::protobuf::RpcController *controller,
                   const google::protobuf::Message *request,
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done);
- private:
-  void Timeout(const boost::system::error_code& e,
-               uint64 resonse_identify,
-               google::protobuf::RpcController *controller,
-               google::protobuf::Closure *done,
-               boost::shared_ptr<boost::asio::deadline_timer> timer);
-
-  virtual void Handle(boost::shared_ptr<const ProtobufDecoder> decoder);
-  boost::shared_ptr<HandlerTable> handler_table_;
-  int timeout_ms_;
-  // The response handler table is per connection.
-  HandlerTable response_handler_table_;
-  boost::mutex response_handler_table_mutex_;
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

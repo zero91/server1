@@ -8,6 +8,7 @@ ProtoLib(server_env, 'meta')
 server_env.StaticLibrary(
   target = 'server',
   source = ['connection.hpp',
+   'connection.cpp',
    'io_service_pool.cpp',
    'io_service_pool.hpp',
    'protobuf_connection.cpp',

@@ -65,8 +65,8 @@ other_libs = [
 
 static_libs = other_libs + list(set(boost_libs))
 
-#dynamic_libs = ['ssl', 'pthread', 'tcmalloc']
-dynamic_libs = ['ssl', 'pthread']
+dynamic_libs = ['ssl', 'pthread', 'tcmalloc']
+#dynamic_libs = ['ssl', 'pthread']
 #dynamic_libs = ['pthread']
 
 link_flags = ' -Wl,-Bdynamic'

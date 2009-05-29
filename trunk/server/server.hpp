@@ -52,11 +52,11 @@ private:
   typedef hash_map<string, AcceptorResource> AcceptorTable;
   void ReleaseAcceptor(const string &host);
 
-  void RemoveConnection(Connection *connection);
-  typedef hash_set<Connection*> ConnectionTable;
+  void RemoveConnection(boost::shared_ptr<Connection> connection);
+  typedef hash_set<boost::shared_ptr<Connection> > ConnectionTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
-                    Connection *new_connection);
+                    boost::shared_ptr<Connection> new_connection);
 
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;

@@ -28,7 +28,7 @@ class AcceptorHandler {
         boost::asio::io_service &io_service = socket->get_io_service();
         *socket_pptr_ = new boost::asio::ip::tcp::socket(io_service);
         acceptor_->async_accept(**socket_pptr_, *this);
-        Connection *new_connection = connection_template_->Clone();
+        boost::shared_ptr<Connection> new_connection(connection_template_->Clone());
         new_connection->set_socket(socket);
         server_->HandleAccept(e, new_connection);
       } else {
@@ -111,7 +111,7 @@ void Server::Stop() {
     boost::mutex::scoped_lock locker(connection_table_mutex_);
     for (ConnectionTable::iterator it = connection_table_.begin();
          it != connection_table_.end(); ++it) {
-      Connection *connection = *it;
+      boost::shared_ptr<Connection> connection = *it;
       LOG(WARNING) << "Release connection : " << connection->name();
       connection->Close();
     }
@@ -128,14 +128,14 @@ void Server::Stop() {
   io_service_pool_.Stop();
 }
 
-void Server::RemoveConnection(Connection *connection) {
+void Server::RemoveConnection(boost::shared_ptr<Connection> connection) {
   boost::mutex::scoped_lock locker(connection_table_mutex_);
   connection_table_.erase(connection);
   VLOG(2) << "Remove " << connection->name();
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
-                          Connection *new_connection) {
+                          boost::shared_ptr<Connection> new_connection) {
   VLOG(2) << "HandleAccept";
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.

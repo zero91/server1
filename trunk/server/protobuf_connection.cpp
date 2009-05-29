@@ -8,6 +8,7 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "server/protobuf_connection.hpp"
+#include "server/protobuf_connection-inl.hpp"
 // Encoder the Protobuf to line format.
 // The line format is:
 // length:content
@@ -25,7 +26,7 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
           << " content size: " << content->size();
   return make_pair(header, content);
 };
-ProtobufConnection::~ProtobufConnection() {
+ProtobufConnectionImpl::~ProtobufConnectionImpl() {
   VLOG(2) << name() << " : " << "Distroy protobuf connection" << this;
   boost::shared_ptr<ProtobufDecoder> decoder;
   int i = 0;
@@ -106,7 +107,7 @@ boost::tribool ProtobufDecoder::Consume(char input) {
 }
 
 static void CallServiceMethodDone(
-    ProtobufConnection *connection,
+    ProtobufConnectionImpl *connection,
     boost::shared_ptr<const ProtobufDecoder> decoder,
     boost::shared_ptr<google::protobuf::Message> resource,
     boost::shared_ptr<google::protobuf::Message> response) {
@@ -128,7 +129,7 @@ static void HandleService(
     const google::protobuf::Message *request_prototype,
     const google::protobuf::Message *response_prototype,
     boost::shared_ptr<const ProtobufDecoder> decoder,
-    ProtobufConnection *connection) {
+    ProtobufConnectionImpl *connection) {
   VLOG(2) << connection->name() << " : " <<  "HandleService: " << method->full_name();
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
   boost::shared_ptr<google::protobuf::Message> request(request_prototype->New());
@@ -150,7 +151,7 @@ static void HandleService(
   service->CallMethod(method, connection, request.get(), response.get(), done);
 }
 
-bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
+bool ProtobufConnectionImpl::RegisterService(google::protobuf::Service *service) {
   if (this->IsConnected()) {
     LOG(WARNING) << "Can't register service to running connection.";
     return false;
@@ -176,7 +177,7 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
   }
 }
 
-void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
+void ProtobufConnectionImpl::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
   HandlerTable::value_type::second_type handler;
   HandlerTable::iterator it = handler_table_->find(meta.identify());
@@ -196,9 +197,9 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
   handler(decoder, this);
 }
 
-ProtobufConnection* ProtobufConnection::Clone() {
+ProtobufConnectionImpl* ProtobufConnectionImpl::Clone() {
   static int i = 0;
-  ProtobufConnection* connection = new ProtobufConnection(this->timeout_ms_);
+  ProtobufConnectionImpl* connection = new ProtobufConnectionImpl(this->timeout_ms_);
   connection->handler_table_ = this->handler_table_;
   connection->set_name(this->name() + boost::lexical_cast<string>(i++));
   VLOG(2) << "Clone protobufconnection: " << name() << " -> " << connection->name();
@@ -207,7 +208,7 @@ ProtobufConnection* ProtobufConnection::Clone() {
 
 static void CallMethodCallback(
     boost::shared_ptr<const ProtobufDecoder> decoder,
-    ProtobufConnection *connection,
+    ProtobufConnectionImpl *connection,
     google::protobuf::RpcController *controller,
     google::protobuf::Message *response,
     google::protobuf::Closure *done) {
@@ -236,7 +237,7 @@ static void CallMethodCallback(
   if (done) done->Run();
 }
 
-void ProtobufConnection::Timeout(const boost::system::error_code& e,
+void ProtobufConnectionImpl::Timeout(const boost::system::error_code& e,
                                  uint64 response_identify,
                                  google::protobuf::RpcController *controller,
                                  google::protobuf::Closure *done,
@@ -264,7 +265,7 @@ void ProtobufConnection::Timeout(const boost::system::error_code& e,
   if (done) done->Run();
 }
 
-void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
+void ProtobufConnectionImpl::CallMethod(const google::protobuf::MethodDescriptor *method,
                   google::protobuf::RpcController *controller,
                   const google::protobuf::Message *request,
                   google::protobuf::Message *response,
@@ -302,7 +303,33 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
         new boost::asio::deadline_timer(socket_->get_io_service()));
     timer->expires_from_now(boost::posix_time::milliseconds(timeout_ms_));
     const boost::function1<void, const boost::system::error_code&> h =
-          boost::bind(&ProtobufConnection::Timeout, this, _1, response_identify, controller, done, timer);
+          boost::bind(&ProtobufConnectionImpl::Timeout, this, _1, response_identify, controller, done, timer);
     timer->async_wait(h);
   }
+}
+
+ProtobufConnection::ProtobufConnection(int timeout) : Connection(new ProtobufConnectionImpl(timeout)) {
+  VLOG(2) << "New protobuf connection" << this << " timeout: " << timeout;
+}
+
+ProtobufConnection::ProtobufConnection() : Connection(
+  new ProtobufConnectionImpl()) {
+}
+
+bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
+  return dynamic_cast<ProtobufConnectionImpl*>(impl_.get())->RegisterService(
+      service);
+}
+
+void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
+                                    google::protobuf::RpcController *controller,
+                                    const google::protobuf::Message *request,
+                                    google::protobuf::Message *response,
+                                    google::protobuf::Closure *done) {
+  dynamic_cast<ProtobufConnectionImpl*>(impl_.get())->CallMethod(
+      method,
+      controller,
+      request,
+      response,
+      done);
 }
