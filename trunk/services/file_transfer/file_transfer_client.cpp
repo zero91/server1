@@ -1,5 +1,6 @@
 #include "services/file_transfer/file_transfer_client.hpp"
 #include "services/file_transfer/file_transfer_service.hpp"
+#include <boost/filesystem/operations.hpp>
 class SliceStatus {
  public:
   enum Status {IDLE, TRANSFERING, DONE};
@@ -23,9 +24,8 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
  public:
   TransferTask(
       FileTransferClient *file_transfer,
-      ProtobufConnection *connection,
+      FullDualChannel *channel,
       const string &host, const string &port, int id);
-  ~TransferTask();
   int id() const {
     return id_;
   }
@@ -51,11 +51,11 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   int id_;
 };
 
-void FileTransferClient::PushConnection(ProtobufConnection *connection) {
+void FileTransferClient::PushChannel(FullDualChannel *channel) {
   static int id = 0;
   boost::shared_ptr<TransferTask> tasker(new TransferTask(
           this,
-          connection,
+          channel,
           checkbook_->meta().host(),
           checkbook_->meta().port(), id++));
   {
@@ -81,8 +81,12 @@ void FileTransferClient::Start() {
 }
 
 void FileTransferClient::Stop() {
+  boost::shared_ptr<TransferTask> tasker;
+  transfer_task_queue_.Push(tasker);
   pool_.Stop();
-  checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
+  if (!finished()) {
+    checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
+  }
 }
 
 FileTransferClient *FileTransferClient::Create(
@@ -107,6 +111,7 @@ int FileTransferClient::Percent() {
       ++cnt;
     }
   }
+  VLOG(2) << "Cnt: " << cnt;
   return cnt * 1000 / checkbook_->slice_size();
 }
 
@@ -162,7 +167,8 @@ void FileTransferClient::SyncCheckBookDone(
   } else {
     ++sync_checkbook_failed_;
   }
-  Schedule();
+  pool_.PushTask(boost::bind(
+      &FileTransferClient::Schedule, this));
   return;
 }
 
@@ -186,6 +192,11 @@ void FileTransferClient::ScheduleSlice() {
   }
 
   for (;;) {
+    boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
+    if (tasker.get() == NULL) {
+      VLOG(2) << "ScheduleSlice get NULL tasker, exit.";
+      return;
+    }
     boost::shared_ptr<SliceStatus> slice;
     bool in_transfering = false;
     for (SliceStatusLink::iterator it = transfering_slice_.begin();
@@ -195,6 +206,7 @@ void FileTransferClient::ScheduleSlice() {
       boost::shared_ptr<SliceStatus> local_slice = *it;
       if (local_slice->status() == SliceStatus::DONE) {
         VLOG(2) << "slice " << local_slice->index() << " Done";
+        checkbook_->mutable_slice(local_slice->index())->set_finished(true);
         transfering_slice_.erase(it);
         it = next;
         continue;
@@ -211,13 +223,18 @@ void FileTransferClient::ScheduleSlice() {
     }
     if (slice.get() == NULL && !in_transfering) {
       VLOG(2) << "Transfer success!";
+      finished_ = true;
+      boost::filesystem::remove(checkbook_->GetCheckBookSrcFileName());
       if (!finish_handler_.empty()) {
         finish_handler_();
       }
       return;
     }
-    VLOG(2) << "Get slice: " << slice->index();
-    boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
+    if (slice.get() == NULL) {
+      VLOG(2) << "Get null slice, retry";
+      transfer_task_queue_.Push(tasker);
+      continue;
+    }
     VLOG(2) << "Get task: " << tasker->id();
     pool_.PushTask(boost::bind(
         &FileTransferClient::SyncSlice, this,
@@ -230,6 +247,7 @@ void FileTransferClient::SyncSlice(
     boost::shared_ptr<TransferTask> tasker) {
   FileTransfer::SliceRequest *request = tasker->mutable_request();
   request->Clear();
+  tasker->set_status(slice);
   const int index = slice->index();
   const FileTransfer::Slice &slice_meta = checkbook_->slice(index);
   const int length = slice_meta.length();
@@ -261,17 +279,19 @@ void TransferTask::SyncSliceDone() {
   } else {
     status_->set_status(SliceStatus::DONE);
   }
+  VLOG(2) << "SyncSlice: " << status_->index() << " Done";
   file_transfer_->SyncSliceDone(shared_from_this());
 }
 
 void FileTransferClient::SyncSliceDone(
     boost::shared_ptr<TransferTask> tasker) {
   transfer_task_queue_.Push(tasker);
+  VLOG(2) << "SyncSlice Done";
 }
 
 TransferTask::TransferTask(
     FileTransferClient *file_transfer,
-    ProtobufConnection *connection,
+    FullDualChannel *channel,
     const string &host, const string &port, int id)
-    : stub_(connection), id_(id), file_transfer_(file_transfer) {
+    : stub_(channel), id_(id), file_transfer_(file_transfer) {
 }

@@ -9,19 +9,14 @@
 
 #include "client/client_connection.hpp"
 void ClientConnection::ConnectionClose(ProtobufConnection *connection) {
-  mutex_.lock();
-  delete connection_;
-  connection_ = NULL;
   VLOG(2) << "ClientConnection::ConnectionClose";
   notifier_->Notify();
-  mutex_.unlock();
 }
 bool ClientConnection::Connect() {
   if (connection_ && connection_->IsConnected()) {
     LOG(WARNING) << "Connect but IsConnected";
     return true;
   }
-  Disconnect();
   if (out_threadpool_  == NULL) threadpool_.Start();
   if (out_io_service_pool_ == NULL) io_service_pool_.Start();
   boost::asio::ip::tcp::resolver::query query(server_, port_);

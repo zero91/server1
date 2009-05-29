@@ -61,9 +61,12 @@ class ClientConnection : public FullDualChannel {
   void Disconnect() {
     if (connection_) {
       VLOG(2) << "Disconnect: " << connection_->name();
+      mutex_.lock();
       connection_->Close();
       notifier_->Wait();
-      CHECK(connection_ == NULL);
+      delete connection_;
+      connection_ = NULL;
+      mutex_.unlock();
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();

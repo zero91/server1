@@ -11,11 +11,14 @@ class TransferTask;
 class SliceStatus;
 class FileTransferClient {
  public:
-  void PushConnection(ProtobufConnection *connection);
+  void PushChannel(FullDualChannel *channel);
   void Start();
   void Stop();
   void set_finish_listener(const boost::function0<void> h) {
     finish_handler_ = h;
+  }
+  bool finished() const {
+    return finished_;
   }
   static FileTransferClient *Create(
       const string &host, const string &port,
@@ -27,7 +30,7 @@ class FileTransferClient {
  private:
   FileTransferClient(int thread_pool_size) :
     pool_("FileTransferClientThreadPool", thread_pool_size),
-    sync_checkbook_failed_(0) {
+    sync_checkbook_failed_(0), finished_(false) {
   }
   void Schedule();
   void SyncCheckBook();
@@ -53,6 +56,7 @@ class FileTransferClient {
   SliceStatusLink transfering_slice_;
   Status status_;
   int sync_checkbook_failed_;
+  bool finished_;
   friend class TransferTask;
 };
 #endif  // FILE_TRANSFER_CLIENT_HPP_
