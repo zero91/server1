@@ -126,8 +126,7 @@ int main(int argc, char* argv[]) {
   VLOG(0) << "Disconnect";
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     VLOG(1) << "Disconnect " << i;
-    connections[i]->Flush(boost::bind(&ClientConnection::Disconnect,
-                                      connections[i]));
+    connections[i]->Disconnect();
   }
   VLOG(0) << "Stop thread pool";
   pool.Stop();

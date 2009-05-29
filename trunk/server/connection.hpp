@@ -70,16 +70,6 @@ class ConnectionStatus {
     return status_ & CLOSING;
   }
 
-  bool flushing() const {
-    return status_ & FLUSHING;
-  }
-  void set_flushing() {
-    status_ |= FLUSHING;
-  }
-  void clear_flushing() {
-    status_ &= ~FLUSHING;
-  }
-
   int status() const {
     return status_;
   }
@@ -133,7 +123,6 @@ class ConnectionStatus {
     CLOSING = 0x01 << 3,
     SHUTDOWN = 0x01 << 4,
     CLOSED = 0x01 << 5,
-    FLUSHING = 0x01 << 6,
   };
   mutable int status_;
   mutable int reader_, writter_, handler_;
@@ -182,10 +171,6 @@ class Connection {
     close_handlers_.push_back(h);
   }
 
-  void set_flush_handler(const boost::function0<void> &f) {
-    flush_handler_ = f;
-  }
-
   virtual bool IsConnected() {
     return socket_ && socket_->is_open();
   }
@@ -193,7 +178,6 @@ class Connection {
   virtual Connection* Clone() = 0;
   virtual void ScheduleRead() = 0;
   virtual void ScheduleWrite() = 0;
-  virtual void ScheduleFlush() = 0;
   virtual ~Connection() {
     VLOG(2) << "Distroy connection: " << this;
   }
@@ -209,7 +193,6 @@ class Connection {
   Executor *executor_;
   string name_;
   vector<boost::function0<void> > close_handlers_;
-  boost::function0<void> flush_handler_;
   boost::shared_ptr<ConnectionStatus> status_;
   friend class ConnectionReadHandler;
   friend class ConnectionWriteHandler;
@@ -294,8 +277,6 @@ public:
 
   void ScheduleWrite();
 
-  void ScheduleFlush();
-
   template <typename T>
   // The push will take the ownership of the data
   void PushData(const T &data) {
@@ -312,7 +293,6 @@ protected:
   }
   void InternalScheduleRead();
   void InternalScheduleWrite();
-  void InternalScheduleFlush();
   template <class T> void InternalPushData(const T &data);
   virtual void Handle(boost::shared_ptr<const Decoder> decoder) = 0;
   void HandleRead(const boost::system::error_code& e, size_t bytes_transferred);
@@ -358,11 +338,6 @@ void Connection::Shutdown() {
     VLOG(2) << "Call Shutdown but already closed";
   }
   status_->set_closed();
-  for (int i = static_cast<int>(close_handlers_.size()) - 1; i >= 0; --i) {
-    if (!close_handlers_[i].empty()) {
-      close_handlers_[i]();
-    }
-  }
   boost::system::error_code ignored_ec;
   socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored_ec);
   socket_->cancel();
@@ -371,9 +346,15 @@ void Connection::Shutdown() {
 
 void Connection::Cleanup() {
   socket_->close();
-  delete this;
+  socket_.reset();
+  while (!close_handlers_.empty()) {
+    const boost::function0<void> h = close_handlers_.back();
+    close_handlers_.pop_back();
+    if (!h.empty()) {
+      h();
+    }
+  }
 }
-
 
 void Connection::Run(const boost::function0<void> &f) {
   VLOG(2) << name() << " Run";
@@ -385,17 +366,6 @@ void Connection::RunDone() {
   VLOG(2) << name() << " : RunDone";
   ConnectionStatus::ScopedExit exiter(this, status_);
   status_->DecreaseHandlerCounter();
-}
-
-template <class Decoder>
-void ConnectionImpl<Decoder>::ScheduleFlush() {
-  socket_->get_io_service().post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleFlush, this));
-}
-
-template <class Decoder>
-void ConnectionImpl<Decoder>::InternalScheduleFlush() {
-  status_->set_flushing();
-  InternalScheduleWrite();
 }
 
 template <class Decoder>
@@ -520,13 +490,6 @@ void ConnectionImpl<Decoder>::InternalScheduleWrite() {
   VLOG(2) << name() << " : " << " Internal Schedule Write socket open:" << socket_->is_open();
   if (outcoming()->empty()) {
     status_->clear_writting();
-    if (status_->flushing()) {
-      if (!flush_handler_.empty()) {
-        flush_handler_();
-        flush_handler_.clear();
-      }
-      status_->clear_flushing();
-    }
     VLOG(2) << "No outcoming";
     return;
   }

@@ -12,7 +12,6 @@
 #include <boost/thread/shared_mutex.hpp>
 #include "server/protobuf_connection.hpp"
 #include "server/io_service_pool.hpp"
-#include "base/release_proxy.hpp"
 class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
@@ -63,7 +62,8 @@ class ClientConnection : public FullDualChannel {
     if (connection_) {
       VLOG(2) << "Disconnect: " << connection_->name();
       connection_->Close();
-      connection_ = NULL;
+      notifier_->Wait();
+      CHECK(connection_ == NULL);
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();
@@ -72,16 +72,7 @@ class ClientConnection : public FullDualChannel {
       io_service_pool_.Stop();
     }
   }
-  void Flush(const boost::function0<void> &h) {
-    if (connection_ == NULL) {
-      VLOG(2) << "Connection is null";
-      return;
-    }
-    connection_->set_flush_handler(h);
-    connection_->ScheduleFlush();
-  }
   ~ClientConnection() {
-    connection_proxy_->Invalid();
     VLOG(2) << "~ClientConnection";
   }
  private:
@@ -102,6 +93,6 @@ class ClientConnection : public FullDualChannel {
   IOServicePool *out_io_service_pool_;
   string server_, port_;
   boost::shared_mutex mutex_;
-  boost::shared_ptr<ReleaseProxy>  connection_proxy_;
+  boost::shared_ptr<Notifier> notifier_;
 };
 #endif  // CLIENT_CONNECTION_HPP

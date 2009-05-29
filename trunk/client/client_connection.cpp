@@ -10,8 +10,10 @@
 #include "client/client_connection.hpp"
 void ClientConnection::ConnectionClose(ProtobufConnection *connection) {
   mutex_.lock();
+  delete connection_;
   connection_ = NULL;
   VLOG(2) << "ClientConnection::ConnectionClose";
+  notifier_->Notify();
   mutex_.unlock();
 }
 bool ClientConnection::Connect() {
@@ -42,9 +44,9 @@ bool ClientConnection::Connect() {
   }
   connection_ = connection_template_.Clone();
   connection_->set_socket(socket);
-  connection_proxy_.reset(new ReleaseProxy);
+  notifier_.reset(new Notifier);
   boost::function0<void> h = boost::bind(&ClientConnection::ConnectionClose, this, connection_);
-  connection_->push_close_handler(connection_proxy_->proxy(h));
+  connection_->push_close_handler(h);
   if (out_threadpool_) {
     connection_->set_executor(out_threadpool_);
   } else {
