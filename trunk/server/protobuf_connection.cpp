@@ -25,15 +25,36 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
           << " content size: " << content->size();
   return make_pair(header, content);
 };
+
 ProtobufConnection::~ProtobufConnection() {
   VLOG(2) << name() << " : " << "Distroy protobuf connection" << this;
   boost::shared_ptr<ProtobufDecoder> decoder;
   int i = 0;
   for (HandlerTable::iterator it = response_handler_table_.begin();
-       it != response_handler_table_.end(); ++it) {
+       it != response_handler_table_.end();) {
+    HandlerTable::iterator next_it = it;
+    ++next_it;
     LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " in destructor NO " << ++i;
     it->second(decoder, this);
+    response_handler_table_.erase(it);
+    it = next_it;
   }
+}
+
+void ProtobufConnection::Cleanup() {
+  VLOG(2) << "ProtobufConnection::Cleanup";
+  boost::shared_ptr<ProtobufDecoder> decoder;
+  int i = 0;
+  for (HandlerTable::iterator it = response_handler_table_.begin();
+       it != response_handler_table_.end();) {
+    HandlerTable::iterator next_it = it;
+    ++next_it;
+    LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " Cleanup, NO " << ++i;
+    it->second(decoder, this);
+    response_handler_table_.erase(it);
+    it = next_it;
+  }
+  Connection::Cleanup();
 }
 
 template <>

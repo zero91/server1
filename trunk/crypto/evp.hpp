@@ -63,7 +63,7 @@ class EVP {
 };
 
 template <>
-string EVP::digest<string>() const {
+inline string EVP::digest<string>() const {
   static const char hex[] = {
     '0',
     '1',

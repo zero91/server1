@@ -16,7 +16,8 @@ class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
     : connection_(NULL), io_service_pool_("ClientIOService", 1),
-      threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
+      threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL),
+      closed_(true) {
       VLOG(2) << "Constructor client connection";
     connection_template_.set_name(server + "::" + port + "::Client");
   }
@@ -28,8 +29,7 @@ class ClientConnection : public FullDualChannel {
                           const google::protobuf::Message *request,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) {
-    mutex_.lock_shared();
-    if (connection_) {
+    if (IsConnected()) {
       connection_->CallMethod(method, controller, request, response, done);
     } else {
       RpcController *rpc_controller = dynamic_cast<RpcController*>(
@@ -37,8 +37,10 @@ class ClientConnection : public FullDualChannel {
       rpc_controller->SetFailed("Connection is NULL");
       rpc_controller->Notify();
       LOG(WARNING) << "Callmethod but connection is null";
+      if (done) {
+        done->Run();
+      }
     }
-    mutex_.unlock_shared();
   }
 
   void set_name(const string &name) {
@@ -54,19 +56,23 @@ class ClientConnection : public FullDualChannel {
   void set_threadpool(ThreadPool *out_threadpool) {
     out_threadpool_ = out_threadpool;
   }
-  bool IsConnected() {
-    return connection_ && connection_->IsConnected();
+  bool IsConnected() const {
+    return !closed_ && connection_ && connection_->IsConnected();
+  }
+  boost::signals2::signal<void()> *close_signal() {
+    return &close_signal_;
   }
   bool Connect();
   void Disconnect() {
     if (connection_) {
-      VLOG(2) << "Disconnect: " << connection_->name();
-      mutex_.lock();
+      string name = connection_->name();
+      VLOG(2) << "Disconnect: " << name;
+      closed_ = true;
       connection_->Close();
       notifier_->Wait();
-      delete connection_;
+      VLOG(2) << "Disconnect after notifer wait: " << name;
       connection_ = NULL;
-      mutex_.unlock();
+      close_signal_();
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();
@@ -95,7 +101,8 @@ class ClientConnection : public FullDualChannel {
   ThreadPool *out_threadpool_;
   IOServicePool *out_io_service_pool_;
   string server_, port_;
-  boost::shared_mutex mutex_;
+  bool closed_;
+  boost::signals2::signal<void()> close_signal_;
   boost::shared_ptr<Notifier> notifier_;
 };
 #endif  // CLIENT_CONNECTION_HPP

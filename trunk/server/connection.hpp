@@ -17,6 +17,7 @@
 #include "protobuf/service.h"
 #include "boost/thread.hpp"
 #include "server/shared_const_buffers.hpp"
+#include "boost/signals2/signal.hpp"
 class Connection;
 class ConnectionStatus {
  public:
@@ -167,11 +168,11 @@ class Connection {
     return name_;
   }
 
-  void push_close_handler(const boost::function0<void> &h) {
-    close_handlers_.push_back(h);
+  boost::signals2::signal<void()> *close_signal() {
+    return &close_signal_;
   }
 
-  virtual bool IsConnected() {
+  virtual bool IsConnected() const {
     return socket_ && socket_->is_open();
   }
 
@@ -182,7 +183,7 @@ class Connection {
     VLOG(2) << "Distroy connection: " << this;
   }
  protected:
-  inline void Cleanup();
+  inline virtual void Cleanup();
   inline void Run(const boost::function0<void> &f);
   static inline void InternalClose(boost::shared_ptr<ConnectionStatus> status, Connection *connection);
   inline void Shutdown();
@@ -192,7 +193,7 @@ class Connection {
   scoped_ptr<boost::asio::ip::tcp::socket> socket_;
   Executor *executor_;
   string name_;
-  vector<boost::function0<void> > close_handlers_;
+  boost::signals2::signal<void()> close_signal_;
   boost::shared_ptr<ConnectionStatus> status_;
   friend class ConnectionReadHandler;
   friend class ConnectionWriteHandler;
@@ -266,8 +267,7 @@ class ConnectionWriteHandler {
 // Represents a single Connection from a client.
 // The Handler::Handle method should be multi thread safe.
 template <typename Decoder>
-class ConnectionImpl : public Connection {
- private:
+class ConnectionImpl : virtual public Connection {
 public:
   ConnectionImpl() : Connection(), incoming_index_(0), decoder_(new Decoder) {
   }
@@ -345,15 +345,12 @@ void Connection::Shutdown() {
 }
 
 void Connection::Cleanup() {
+  VLOG(2) << "Connection::Cleanup";
   socket_->close();
   socket_.reset();
-  while (!close_handlers_.empty()) {
-    const boost::function0<void> h = close_handlers_.back();
-    close_handlers_.pop_back();
-    if (!h.empty()) {
-      h();
-    }
-  }
+  VLOG(2) << "Cleanup, num_slots: " << close_signal_.num_slots();
+  close_signal_();
+  delete this;
 }
 
 void Connection::Run(const boost::function0<void> &f) {

@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 DEFINE_string(server, "localhost", "The test server");
 DEFINE_string(port, "6789", "The test server");
+DEFINE_int32(num_connections, 4, "The test connections number");
 DEFINE_int32(num_threads, 4, "The test server thread number");
 DEFINE_string(doc_root, ".", "The document root of the file transfer");
 DECLARE_bool(logtostderr);
@@ -222,7 +223,6 @@ TEST_F(FileTransferTest, Test4) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
-
 TEST_F(FileTransferTest, Test5) {
   const int kConnectionNumber = 20;
   const int kSliceNumber = 100;
@@ -267,6 +267,132 @@ TEST_F(FileTransferTest, Test5) {
   dest_path /= dest_filename;
   ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
   for (int i = 0; i < kConnectionNumber; ++i) {
+    connections[i]->Disconnect();
+  }
+  file_transfer_client2->Stop();
+  boost::filesystem::remove(kTestFile);
+  boost::filesystem::remove(dest_path);
+}
+TEST_F(FileTransferTest, Test6) {
+//  const int kConnectionNumber = 20;
+  const int kConnectionNumber = 2;
+  const int kSliceNumber = 100;
+  const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
+  string content;
+  CreateFile(kFileSize, &content);
+  const string dest_filename = "111";
+  // Send the checkbook.
+  file_transfer_client_.reset(FileTransferClient::Create(
+      FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
+  boost::shared_ptr<Notifier> ns(new Notifier);
+  file_transfer_client_->set_finish_listener(ns->notify_handler());
+  file_transfer_client_->Start();
+  vector<boost::shared_ptr<ClientConnection> > connections;
+  for (int i = 0; i < kConnectionNumber; ++i) {
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    CHECK(!r->IsConnected());
+    CHECK(r->Connect());
+    r->set_name("Client." + boost::lexical_cast<string>(i));
+    connections.push_back(r);
+    file_transfer_client_->PushChannel(r.get());
+  }
+  connections[0]->Disconnect();
+  connections.erase(connections.begin());
+  ASSERT_EQ(connections.size(), 1);
+  for (int i = 0; i < connections.size(); ++i) {
+    ASSERT_TRUE(connections[i]->IsConnected());
+  }
+  while (file_transfer_client_->Percent() == 0) {
+    sleep(1);
+  }
+  VLOG(2) << "Percent: " << file_transfer_client_->Percent();
+  ASSERT_GT(file_transfer_client_->Percent(), 0);
+  ASSERT_LT(file_transfer_client_->Percent(), 1000);
+  file_transfer_client_->Stop();
+  VLOG(2) << "file transfer client stop";
+  scoped_ptr<FileTransferClient> file_transfer_client2(
+      FileTransferClient::Create(
+      FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
+  ASSERT_EQ(file_transfer_client_->Percent(),
+            file_transfer_client2->Percent());
+  file_transfer_client2->set_finish_listener(ns->notify_handler());
+  file_transfer_client2->Start();
+  VLOG(2) << "file transfer client2 start";
+  for (int i = 0; i < connections.size(); ++i) {
+    file_transfer_client2->PushChannel(connections[i].get());
+  }
+  ns->Wait();
+  ASSERT_EQ(file_transfer_client2->Percent(), 1000);
+  boost::filesystem::path dest_path(FLAGS_doc_root);
+  dest_path /= dest_filename;
+  ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
+  for (int i = 0; i < connections.size(); ++i) {
+    connections[i]->Disconnect();
+  }
+  file_transfer_client2->Stop();
+  boost::filesystem::remove(kTestFile);
+  boost::filesystem::remove(dest_path);
+}
+
+TEST_F(FileTransferTest, Test7) {
+  const int kConnectionNumber = FLAGS_num_connections;
+  const int kSliceNumber = 100;
+  const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
+  string content;
+  CreateFile(kFileSize, &content);
+  const string dest_filename = "111";
+  // Send the checkbook.
+  file_transfer_client_.reset(FileTransferClient::Create(
+      FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
+  boost::shared_ptr<Notifier> ns(new Notifier);
+  file_transfer_client_->set_finish_listener(ns->notify_handler());
+  file_transfer_client_->Start();
+  vector<boost::shared_ptr<ClientConnection> > connections;
+  for (int i = 0; i < kConnectionNumber; ++i) {
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    CHECK(!r->IsConnected());
+    CHECK(r->Connect());
+    r->set_name("Client." + boost::lexical_cast<string>(i));
+    connections.push_back(r);
+    file_transfer_client_->PushChannel(r.get());
+  }
+  for (int i = 0; i < connections.size(); ++i) {
+    if (i % 2 == 1) {
+      connections[i]->Disconnect();
+      connections.erase(connections.begin() + i);
+    }
+  }
+  ASSERT_LT(connections.size(), kConnectionNumber);
+  ASSERT_GT(connections.size(), 0);
+  VLOG(2) << "connections size: " << connections.size();
+  for (int i = 0; i < connections.size(); ++i) {
+    ASSERT_TRUE(connections[i]->IsConnected());
+  }
+  while (file_transfer_client_->Percent() == 0) {
+    sleep(1);
+  }
+  VLOG(1) << "Percent: " << file_transfer_client_->Percent();
+  ASSERT_GT(file_transfer_client_->Percent(), 0);
+  ASSERT_LT(file_transfer_client_->Percent(), 1000);
+  file_transfer_client_->Stop();
+  VLOG(1) << "file transfer client stop";
+  scoped_ptr<FileTransferClient> file_transfer_client2(
+      FileTransferClient::Create(
+      FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
+  ASSERT_EQ(file_transfer_client_->Percent(),
+            file_transfer_client2->Percent());
+  file_transfer_client2->set_finish_listener(ns->notify_handler());
+  file_transfer_client2->Start();
+  VLOG(2) << "file transfer client2 start";
+  for (int i = 0; i < connections.size(); ++i) {
+    file_transfer_client2->PushChannel(connections[i].get());
+  }
+  ns->Wait();
+  ASSERT_EQ(file_transfer_client2->Percent(), 1000);
+  boost::filesystem::path dest_path(FLAGS_doc_root);
+  dest_path /= dest_filename;
+  ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
+  for (int i = 0; i < connections.size(); ++i) {
     connections[i]->Disconnect();
   }
   file_transfer_client2->Stop();

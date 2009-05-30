@@ -1,5 +1,7 @@
 #include "services/file_transfer/checkbook.hpp"
+#include "crypto/evp.hpp"
 #include "services/file_transfer/file_transfer_service.hpp"
+#include "services/file_transfer/file_transfer_client.hpp"
 #include "server/connection.hpp"
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/filesystem.hpp>
@@ -15,6 +17,7 @@ static string GetSliceName(const FileTransfer::Slice *slice) {
 class TransferInfo : public boost::enable_shared_from_this<TransferInfo> {
  public:
   static boost::shared_ptr<TransferInfo> Load(const string &checkbook_dest_filename) {
+    VLOG(1) << "Load CheckBook from: " << checkbook_dest_filename;
     boost::shared_ptr<TransferInfo> transfer_info(new TransferInfo);
     transfer_info->checkbook_.reset(CheckBook::Load(checkbook_dest_filename));
     if (transfer_info->checkbook_.get() == NULL) {
@@ -26,7 +29,10 @@ class TransferInfo : public boost::enable_shared_from_this<TransferInfo> {
   }
 
   void set_slice_finished(int index) {
+    checkbook_mutex_.lock();
+    VLOG(1) << "Set slice: " << index << " to be finished";
     checkbook_->mutable_slice(index)->set_finished(true);
+    checkbook_mutex_.unlock();
   }
   void SaveCheckBook(const string &doc_root);
   bool Save(const string &doc_root);
@@ -42,45 +48,65 @@ class TransferInfo : public boost::enable_shared_from_this<TransferInfo> {
   const string &checkbook_dest_filename() const {
     return checkbook_->meta().checkbook_dest_filename();
   }
+  ~TransferInfo() {
+    VLOG(1) << "~TransferInfo";
+  }
  private:
+  bool Finished();
   TransferInfo() {
+    VLOG(1) << "Create TransferInfo";
   }
   mutable int connection_count_;
+  boost::shared_mutex checkbook_mutex_;
   boost::shared_ptr<CheckBook> checkbook_;
   boost::mutex save_mutex_;
   bool saved_;
 };
 
+bool TransferInfo::Finished() {
+  checkbook_mutex_.lock_shared();
+  bool finished = true;
+  for (int i = 0; i < checkbook_->slice_size(); ++i) {
+    VLOG(4) << i << " checkbook slice: " << checkbook_->slice(i).finished();
+    if (!checkbook_->slice(i).finished()) {
+      finished = false;
+      VLOG(1) << "slice: " << i << " unfinished";
+      checkbook_mutex_.unlock_shared();
+      return false;
+    }
+  }
+  checkbook_mutex_.unlock_shared();
+  return true;
+}
+
 void TransferInfo::SaveCheckBook(const string &doc_root) {
-  boost::mutex::scoped_lock locker(save_mutex_);
   if (saved_) {
     return;
   }
   boost::filesystem::path checkbook_dest_filename(doc_root);
   checkbook_dest_filename /= this->checkbook_dest_filename();
   checkbook_->Save(checkbook_dest_filename.file_string());
-  VLOG(2) << "SaveCheckbook to: " << checkbook_dest_filename.file_string();
+  VLOG(1) << "SaveCheckbook to: " << checkbook_dest_filename.file_string();
 }
 
 bool TransferInfo::Save(const string &doc_root) {
-  boost::mutex::scoped_lock locker(save_mutex_);
   if (saved_) {
+    VLOG(1) << "Saved";
     return true;
   }
-  int i;
-  const int slice_size = checkbook_->slice_size();
-  for (i = 0; i < slice_size; ++i) {
-    if (!checkbook_->slice(i).finished()) {
-      break;
-    }
+  if (!Finished()) {
+    VLOG(1) << "Unfinished";
+    return false;
+  }
+  boost::mutex::scoped_lock locker(save_mutex_);
+  if (saved_) {
+    VLOG(1) << "Saved";
+    return true;
   }
   boost::filesystem::path checkbook_dest_filename(doc_root);
   checkbook_dest_filename /= this->checkbook_dest_filename();
-  if (i < slice_size) {
-    VLOG(2) << "i: " << i << " total slice: " << slice_size << " unfinished";
-    return false;
-  }
   VLOG(2) << this->checkbook_dest_filename() << " transfer finished";
+  const int slice_size = checkbook_->slice_size();
   const FileTransfer::Slice &last_slice = checkbook_->slice(slice_size - 1);
   int file_size = last_slice.offset() + last_slice.length();
   boost::filesystem::path dest_filename(doc_root);
@@ -162,13 +188,13 @@ void FileTransferServiceImpl::ReceiveCheckBook(
     const FileTransfer::CheckBook *request,
     FileTransfer::CheckBookResponse *response,
     google::protobuf::Closure *done) {
+  ScopedClosure run(done);
   const FileTransfer::CheckBook &checkbook = *request;
   boost::filesystem::path dest_checkbook_filename(doc_root_);
   dest_checkbook_filename /= CheckBook::GetCheckBookDestFileName(&checkbook.meta());
-  VLOG(2) << "Receive checkbook: " << dest_checkbook_filename;
+  VLOG(1) << "Receive checkbook: " << dest_checkbook_filename;
   CheckBook::Save(&checkbook, dest_checkbook_filename.file_string());
   response->set_succeed(true);
-  done->Run();
 }
 
 boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfoFromConnection(
@@ -177,17 +203,17 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfoFromConn
   ConnectionToCheckBookTable::const_iterator it = connection_table_.find(
       connection);
   if (it == connection_table_.end()) {
-    VLOG(2) << "Can't find " << connection << " from connection table";
+    VLOG(1) << "Can't find " << connection << " from connection table";
     return kEmptyTransferInfo;
   }
-  VLOG(2) << "Find " << connection << " from connection table";
+  VLOG(1) << "Find " << connection << " from connection table";
   const CheckBookTable &check_table = it->second;
   CheckBookTable::const_iterator jt = check_table.find(checkbook_dest_filename);
   if (jt == check_table.end()) {
     VLOG(2) << "Can't find " << checkbook_dest_filename << " from checkbook table";
     return kEmptyTransferInfo;
   }
-  VLOG(2) << "Find " << connection << " : " << checkbook_dest_filename << " from connection table";
+  VLOG(1) << "Find " << connection << " : " << checkbook_dest_filename << " from connection table";
   return jt->second;
 }
 
@@ -195,10 +221,10 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfoFromDest
     const string &checkbook_dest_filename) {
   CheckBookTable::const_iterator jt = check_table_.find(checkbook_dest_filename);
   if (jt == check_table_.end()) {
-    VLOG(2) << "Can't find " << checkbook_dest_filename << " from dest name table";
+    VLOG(1) << "Can't find " << checkbook_dest_filename << " from dest name table";
     return kEmptyTransferInfo;
   }
-  VLOG(2) << "Find " << checkbook_dest_filename << " from dest name table";
+  VLOG(1) << "Find " << checkbook_dest_filename << " from dest name table";
   return jt->second;
 }
 
@@ -221,30 +247,30 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfo(
     if (task_info.get() == NULL) {
       task_info = LoadTransferInfoFromDisk(checkbook_dest_filename);
       if (task_info == NULL) {
-        VLOG(2) << "Can't GetTransferInfo";
+        VLOG(1) << "Can't GetTransferInfo";
         return kEmptyTransferInfo;
       } else {
-        VLOG(2) << "GetTransferInfo from disk";
+        VLOG(1) << "GetTransferInfo from disk";
         const string &checkbook_dest_filename = task_info->checkbook_dest_filename();
-        VLOG(2) << "Insert : " << connection << " : " << checkbook_dest_filename << " to connection table";
+        VLOG(1) << "Insert : " << connection << " : " << checkbook_dest_filename << " to connection table";
         connection_table_[connection][checkbook_dest_filename] = task_info;
         check_table_[checkbook_dest_filename] = task_info;
-        VLOG(2) << "Insert : " << checkbook_dest_filename << " to dest name table";
+        VLOG(1) << "Insert : " << checkbook_dest_filename << " to dest name table";
         task_info->inc_connection_count();
-        connection->push_close_handler(boost::bind(
+        connection->close_signal()->connect(boost::bind(
             &FileTransferServiceImpl::CloseConnection, this, connection));
       }
     } else {
-      VLOG(2) << "GetTransferInfo from Destname table";
+      VLOG(1) << "GetTransferInfo from Destname table";
       const string &checkbook_dest_filename = task_info->checkbook_dest_filename();
       connection_table_[connection][checkbook_dest_filename] = task_info;
-      VLOG(2) << "Insert : " << connection << " : " << checkbook_dest_filename << " to connection table";
+      VLOG(1) << "Insert : " << connection << " : " << checkbook_dest_filename << " to connection table";
       task_info->inc_connection_count();
-      connection->push_close_handler(boost::bind(
+      connection->close_signal()->connect(boost::bind(
           &FileTransferServiceImpl::CloseConnection, this, connection));
     }
   } else {
-    VLOG(2) << "GetTransferInfo from ConnectionTable";
+    VLOG(1) << "GetTransferInfo from ConnectionTable";
   }
   return task_info;
 }
@@ -254,12 +280,12 @@ void FileTransferServiceImpl::ReceiveSlice(
     const FileTransfer::SliceRequest *request,
     FileTransfer::SliceResponse *response,
     google::protobuf::Closure *done) {
+  ScopedClosure run(done);
   VLOG(2) << "Receive slice: " << request->slice().index();
   Connection *connection = dynamic_cast<Connection*>(controller);
   if (connection == NULL) {
     LOG(WARNING) << "fail to convert controller to connection!";
     response->set_succeed(false);
-    done->Run();
     return;
   }
   const string checkbook_dest_filename = request->slice().checkbook_dest_filename();
@@ -267,54 +293,74 @@ void FileTransferServiceImpl::ReceiveSlice(
   boost::shared_ptr<TransferInfo> transfer_info = GetTransferInfo(connection, checkbook_dest_filename);
   if (transfer_info.get() == NULL) {
     response->set_succeed(false);
+    VLOG(1) << "Fail to get checkbook for slice: " << request->slice().index();
     LOG(WARNING) << "Fail to get checkbook for slice: " << request->slice().index();
-    done->Run();
     return;
   }
 
   if (!SaveSliceRequest(request)) {
+    VLOG(1) << "Fail to save slice: " << request->slice().index();
     LOG(WARNING) << "Fail to save slice: " << request->slice().index();
     response->set_succeed(false);
-    done->Run();
     return;
   }
+  VLOG(1) << "Receive slice: " << request->slice().index();
   transfer_info->set_slice_finished(request->slice().index());
   if (transfer_info->Save(doc_root_)) {
+    VLOG(1) << "ReceiveFinished";
     response->set_finished(true);
   }
   response->set_succeed(true);
-  done->Run();
 }
 
 void FileTransferServiceImpl::CloseConnection(
     const Connection *connection) {
   VLOG(2) << "CloseConnection: " << connection;
   boost::mutex::scoped_lock locker(table_mutex_);
-  for (ConnectionToCheckBookTable::iterator it =
-       connection_table_.begin();
-       it != connection_table_.end();) {
-    ConnectionToCheckBookTable::iterator next_it = it;
-    ++next_it;
-    CheckBookTable *checkbook_table = &it->second;
-    for (CheckBookTable::iterator jt = checkbook_table->begin();
-         jt != checkbook_table->end();) {
-      CheckBookTable::iterator next_jt = jt;
-      ++next_jt;
-      boost::shared_ptr<TransferInfo> transfer_info = jt->second;
-      transfer_info->dec_connection_count();
-      if (transfer_info->connection_count() == 0) {
-        VLOG(2) << transfer_info->checkbook_dest_filename()
-                << " have zero connection, flush the checkbook";
-        checkbook_table->erase(jt);
-        check_table_.erase(transfer_info->checkbook_dest_filename());
-        transfer_info->SaveCheckBook(doc_root_);
-      }
-      jt = next_jt;
+  ConnectionToCheckBookTable::iterator it = connection_table_.find(connection);
+  CheckBookTable *checkbook_table = &it->second;
+  for (CheckBookTable::iterator jt = checkbook_table->begin();
+       jt != checkbook_table->end(); ++jt) {
+    boost::shared_ptr<TransferInfo> transfer_info = jt->second;
+    transfer_info->dec_connection_count();
+    if (transfer_info->connection_count() == 0) {
+      VLOG(2) << transfer_info->checkbook_dest_filename()
+        << " have zero connection, flush the checkbook";
+      check_table_.erase(transfer_info->checkbook_dest_filename());
+      transfer_info->SaveCheckBook(doc_root_);
     }
-    if (checkbook_table->empty()) {
-      VLOG(2) << connection << " have null checkbook table, removed";
-      connection_table_.erase(it);
-    }
-    it = next_it;
   }
+  checkbook_table->clear();
+  connection_table_.erase(it);
+}
+
+static string GetRegisterUniqueIdentify(
+    const FileTransfer::RegisterRequest *request) {
+  scoped_ptr<EVP> evp(EVP::CreateMD5());
+  evp->Update(request->src_filename());
+  evp->Update(request->local_filename());
+  evp->Update(request->local_mac_address());
+  evp->Finish();
+  return evp->digest<string>();
+}
+
+void FileTransferServiceImpl::Register(
+    google::protobuf::RpcController *controller,
+    const FileTransfer::RegisterRequest *request,
+    FileTransfer::RegisterResponse *response,
+    google::protobuf::Closure *done) {
+  ScopedClosure run(done);
+  FullDualChannel *channel = dynamic_cast<FullDualChannel*>(controller);
+  if (channel == NULL) {
+    LOG(WARNING) << "Can't convert controller to full dual channel.";
+    return;
+  }
+  string unique_identify = GetRegisterUniqueIdentify(request);
+  {
+    boost::mutex::scoped_lock locker(transfer_client_table_mutex_);
+    TransferClientTable::iterator it = transfer_client_table_.find(unique_identify);
+    if (it == transfer_client_table_.end()) {
+    }
+  }
+
 }

@@ -134,7 +134,6 @@ void Server::RemoveConnection(Connection *connection) {
     connection_table_.erase(connection);
     VLOG(2) << "Remove " << connection->name();
   }
-  delete connection;
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
@@ -143,7 +142,8 @@ void Server::HandleAccept(const boost::system::error_code& e,
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
   new_connection->set_executor(&threadpool_);
-  new_connection->push_close_handler(boost::bind(&Server::RemoveConnection, this, new_connection));
+  new_connection->close_signal()->connect(
+      boost::bind(&Server::RemoveConnection, this, new_connection));
   {
     boost::mutex::scoped_lock locker(connection_table_mutex_);
     connection_table_.insert(new_connection);

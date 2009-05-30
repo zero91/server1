@@ -1,6 +1,7 @@
 #ifndef FILE_TRANSFER_CLIENT_HPP_
 #define FILE_TRANSFER_CLIENT_HPP_
 #include "base/base.hpp"
+#include "base/hash.hpp"
 #include <boost/function.hpp>
 #include <boost/bind.hpp>
 #include "thread/threadpool.hpp"
@@ -28,31 +29,38 @@ class FileTransferClient {
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
  private:
+  enum Status {
+    SYNC_CHECKBOOK = 0,
+    PREPARE_SLICE,
+    SYNC_SLICE
+  };
   FileTransferClient(int thread_pool_size) :
     pool_("FileTransferClientThreadPool", thread_pool_size),
-    sync_checkbook_failed_(0), finished_(false) {
+    sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK) {
   }
   void Schedule();
   void SyncCheckBook();
-  void SyncCheckBookDone(boost::shared_ptr<TransferTask> tasker, bool succeed);
+  void PrepareSlice();
   void ScheduleSlice();
   void SyncSlice(boost::shared_ptr<SliceStatus> slice,
                  boost::shared_ptr<TransferTask> tasker);
-  void SyncSliceDone(boost::shared_ptr<TransferTask> tasker);
+  void SyncSliceDone(
+      boost::shared_ptr<TransferTask> tasker,
+      bool succeed, boost::shared_ptr<SliceStatus> status);
+  void ChannelClosed(boost::shared_ptr<TransferTask> tasker);
   static const int kSyncCheckBookRetry = 3;
-  enum Status {
-    SYNC_CHECKBOOK,
-    SYNC_SLICE
-  };
   typedef deque<boost::shared_ptr<TransferTask> > TransferTaskQueue;
   typedef list<boost::shared_ptr<SliceStatus> > SliceStatusLink;
   ThreadPool pool_;
   boost::function0<void> finish_handler_;
   PCQueue<boost::shared_ptr<TransferTask> > transfer_task_queue_;
-  boost::mutex transfer_task_list_mutex_;
-  list<boost::shared_ptr<TransferTask> > transfer_task_list_;
+  boost::mutex transfer_task_set_mutex_;
+  hash_set<boost::shared_ptr<TransferTask> > transfer_task_set_;
   scoped_ptr<CheckBook> checkbook_;
   boost::iostreams::mapped_file_source src_file_;
+  boost::mutex sync_checkbook_mutex_;
+  boost::mutex prepare_slice_mutex_;
+  boost::mutex transfering_slice_mutex_;
   SliceStatusLink transfering_slice_;
   Status status_;
   int sync_checkbook_failed_;

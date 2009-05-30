@@ -74,7 +74,7 @@ CheckBook *CheckBook::Create(
     adler = adler32(adler, data, length);
     slice->set_previous_adler(previous_adler);
     slice->set_adler(adler);
-    VLOG(2) << "slice " << i << " previous_adler: " << slice->previous_adler() << " adler: " << slice->adler() << " length: " << slice->length();
+    VLOG(4) << "slice " << i << " previous_adler: " << slice->previous_adler() << " adler: " << slice->adler() << " length: " << slice->length();
   }
   return checkbook;
 }

@@ -63,12 +63,15 @@ class RpcController : virtual public google::protobuf::RpcController {
 class FullDualChannel : virtual public RpcController,
   virtual public google::protobuf::RpcChannel {
  public:
+  typedef boost::signals2::signal<void()> CloseSignal;
   virtual bool RegisterService(google::protobuf::Service *service) = 0;
   virtual void CallMethod(const google::protobuf::MethodDescriptor *method,
                           google::protobuf::RpcController *controller,
                           const google::protobuf::Message *request,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) = 0;
+  virtual CloseSignal *close_signal() = 0;
+  virtual bool IsConnected() const = 0;
 };
 
 class ProtobufDecoder {
@@ -115,7 +118,7 @@ private:
   ProtobufLineFormat::MetaData meta_;
 };
 
-class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual public FullDualChannel {
+class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtual public FullDualChannel {
  private:
    typedef hash_map<uint64, boost::function2<void, boost::shared_ptr<const ProtobufDecoder>,
           ProtobufConnection*> > HandlerTable;
@@ -128,6 +131,12 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual publi
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
       handler_table_(new HandlerTable), timeout_ms_(0) {
     VLOG(2) << "New protobuf connection" << this;
+  }
+  CloseSignal *close_signal() {
+    return Connection::close_signal();
+  }
+  virtual bool IsConnected() const {
+    return Connection::IsConnected();
   }
 
   ~ProtobufConnection();
@@ -143,6 +152,7 @@ class ProtobufConnection : public ConnectionImpl<ProtobufDecoder>, virtual publi
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done);
  private:
+  virtual void Cleanup();
   void Timeout(const boost::system::error_code& e,
                uint64 resonse_identify,
                google::protobuf::RpcController *controller,

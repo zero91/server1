@@ -33,6 +33,7 @@ private:
  boost::function0<void> f_;
 };
 
+
 inline google::protobuf::Closure *NewClosure(
     const boost::function0<void> &f) {
   return new OnceClosure(f);
@@ -42,4 +43,15 @@ inline google::protobuf::Closure *NewPermenantClosure(
     const boost::function0<void> &f) {
   return new PermenantClosure(f);
 }
+
+class ScopedClosure {
+ public:
+  ScopedClosure(google::protobuf::Closure *closure) : closure_(closure) {
+  }
+  ~ScopedClosure() {
+    closure_->Run();
+  }
+ private:
+  google::protobuf::Closure *closure_;
+};
 #endif  // CLOSURE_HPP_

@@ -130,6 +130,7 @@ TEST_F(FileTransferTest, Test1) {
   boost::filesystem::remove(dest_filename);
   boost::filesystem::remove(kTestFile);
 }
+
 TEST_F(FileTransferTest, Test2) {
   const int kFileSize = CheckBook::GetSliceSize() + 1;
   string content;

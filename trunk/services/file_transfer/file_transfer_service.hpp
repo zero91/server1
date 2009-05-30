@@ -6,6 +6,7 @@
 #include "server/protobuf_connection.hpp"
 #include "services/file_transfer/checkbook.hpp"
 #include "services/file_transfer/file_transfer.pb.h"
+class FileTransferClient;
 class TransferInfo;
 class Connection;
 class FileTransferServiceImpl : public FileTransfer::FileTransferService {
@@ -20,6 +21,10 @@ class FileTransferServiceImpl : public FileTransfer::FileTransferService {
                     const FileTransfer::SliceRequest *request,
                     FileTransfer::SliceResponse *response,
                     google::protobuf::Closure *done);
+  void Register(google::protobuf::RpcController *controller,
+                const FileTransfer::RegisterRequest *request,
+                FileTransfer::RegisterResponse *response,
+                google::protobuf::Closure *done);
  private:
   boost::shared_ptr<TransferInfo> GetTransferInfoFromConnection(
     const Connection *connection,
@@ -34,10 +39,13 @@ class FileTransferServiceImpl : public FileTransfer::FileTransferService {
   bool SaveSliceRequest(const FileTransfer::SliceRequest *slice_request);
   void CloseConnection(const Connection *connection);
   boost::mutex table_mutex_;
+  typedef hash_map<string, boost::shared_ptr<FileTransferClient> > TransferClientTable;
   typedef hash_map<string, boost::shared_ptr<TransferInfo> > CheckBookTable;
   typedef hash_map<const Connection*, CheckBookTable> ConnectionToCheckBookTable;
   ConnectionToCheckBookTable connection_table_;
   CheckBookTable check_table_;
+  TransferClientTable transfer_client_table_;
+  boost::mutex transfer_client_table_mutex_;
   string doc_root_;
 };
 #endif  // FILE_TRANSFER_SERVICE_HPP_

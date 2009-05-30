@@ -37,11 +37,12 @@ bool ClientConnection::Connect() {
     LOG(WARNING) << ":fail to connect, error:"  << error.message();
     return false;
   }
+  notifier_.reset(new Notifier);
   connection_ = connection_template_.Clone();
   connection_->set_socket(socket);
-  notifier_.reset(new Notifier);
-  boost::function0<void> h = boost::bind(&ClientConnection::ConnectionClose, this, connection_);
-  connection_->push_close_handler(h);
+  closed_ = !connection_->IsConnected();
+  connection_->close_signal()->connect(
+      boost::bind(&ClientConnection::ConnectionClose, this, connection_));
   if (out_threadpool_) {
     connection_->set_executor(out_threadpool_);
   } else {
