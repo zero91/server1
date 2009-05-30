@@ -83,20 +83,22 @@ void FileTransferClient::PushChannel(FullDualChannel *channel) {
     transfer_task_set_.insert(tasker);
   }
   transfer_task_queue_.Push(tasker);
-  pool_.PushTask(boost::bind(
+  GetThreadPool()->PushTask(boost::bind(
       &FileTransferClient::Schedule, this));
 }
 
 void FileTransferClient::Start() {
-  if (pool_.IsRunning()) {
+  if (out_threadpool_ == NULL && pool_.IsRunning()) {
     LOG(WARNING) << "FileTransferClient is running";
     return;
   }
-  pool_.Start();
+  if (out_threadpool_ == NULL) {
+    pool_.Start();
+  }
 }
 
 void FileTransferClient::Stop() {
-  if (!pool_.IsRunning()) {
+  if (!GetThreadPool()->IsRunning()) {
     LOG(WARNING) << "FileTransferClient already stopped.";
     return;
   }
@@ -104,7 +106,9 @@ void FileTransferClient::Stop() {
   for (int i = 0; i < transfer_task_set_.size(); ++i) {
     transfer_task_queue_.Push(tasker);
   }
-  pool_.Stop();
+  if (out_threadpool_ == NULL) {
+    pool_.Stop();
+  }
   if (!finished()) {
     VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName();
     checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
@@ -116,7 +120,8 @@ FileTransferClient *FileTransferClient::Create(
     const string &src_filename,
     const string &dest_filename,
     int threadpool_size) {
-  FileTransferClient *file_transfer = new FileTransferClient(threadpool_size);
+  FileTransferClient *file_transfer = new FileTransferClient(
+      host, port, src_filename, dest_filename, threadpool_size);
   file_transfer->checkbook_.reset(
       CheckBook::Create(host, port, src_filename, dest_filename));
   if (!file_transfer->checkbook_.get()) {
@@ -159,18 +164,18 @@ void FileTransferClient::SyncCheckBook() {
   boost::mutex::scoped_lock locker(sync_checkbook_mutex_);
   if (status_ != SYNC_CHECKBOOK) {
     LOG(WARNING) << "SyncCheckBook but status is: " << status_;
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
   if (sync_checkbook_failed_ >= kSyncCheckBookRetry) {
     LOG(WARNING) << "SyncCheckbook failed: " << sync_checkbook_failed_;
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
   if (checkbook_->meta().synced_with_dest()) {
     LOG(WARNING) << "Already synced with dest";
     status_ = PREPARE_SLICE;
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
   boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
@@ -184,7 +189,7 @@ void FileTransferClient::SyncCheckBook() {
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
     }
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
   } else {
     status_ = PREPARE_SLICE;
     checkbook_->mutable_meta()->set_synced_with_dest(true);
@@ -192,7 +197,7 @@ void FileTransferClient::SyncCheckBook() {
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
     }
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
   }
 }
 
@@ -216,7 +221,7 @@ void FileTransferClient::PrepareSlice() {
   boost::mutex::scoped_lock locker(prepare_slice_mutex_);
   if (status_ != PREPARE_SLICE) {
     LOG(WARNING) << "PrepareSlice but status is: " << status_;
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
   VLOG(1) << "PrepareSlice";
@@ -226,7 +231,7 @@ void FileTransferClient::PrepareSlice() {
   if (!src_file_.is_open()) {
     LOG(WARNING) << "Fail to open source file: "
       << meta.src_filename();
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
 
@@ -242,7 +247,7 @@ void FileTransferClient::PrepareSlice() {
     }
   }
   status_ = SYNC_SLICE;
-  pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+  GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
 }
 
 void FileTransferClient::ScheduleSlice() {
@@ -260,7 +265,7 @@ void FileTransferClient::ScheduleSlice() {
     VLOG(2) << "slice list size: " << transfering_slice_.size();
     if (status_ != SYNC_SLICE) {
       LOG(WARNING) << "ScheduleSlice but status is: " << status_;
-      pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+      GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
       return;
     }
     for (SliceStatusLink::iterator it = transfering_slice_.begin();
@@ -305,7 +310,7 @@ void FileTransferClient::ScheduleSlice() {
     boost::this_thread::yield();
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
-      pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+      GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     }
     return;
   }
@@ -362,7 +367,7 @@ void FileTransferClient::SyncSliceDone(
   VLOG(2) << "SyncSlice Done";
   if (tasker->IsConnected()) {
     transfer_task_queue_.Push(tasker);
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
   }
   if (succeed) {
     status->set_status(SliceStatus::DONE);

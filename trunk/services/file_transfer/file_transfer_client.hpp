@@ -15,11 +15,26 @@ class FileTransferClient {
   void PushChannel(FullDualChannel *channel);
   void Start();
   void Stop();
+  void set_threadpool(ThreadPool *pool) {
+    out_threadpool_ = pool;
+  }
   void set_finish_listener(const boost::function0<void> h) {
     finish_handler_ = h;
   }
   bool finished() const {
     return status_ == FINISHED;
+  }
+  const string &host() const {
+    return host_;
+  }
+  const string &port() const {
+    return port_;
+  }
+  const string &src_filename() const {
+    return src_filename_;
+  }
+  const string &dest_filename() const {
+    return dest_filename_;
   }
   static FileTransferClient *Create(
       const string &host, const string &port,
@@ -29,14 +44,23 @@ class FileTransferClient {
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
  private:
+  ThreadPool *GetThreadPool() {
+    if (out_threadpool_ == NULL) {
+      return &pool_;
+    }
+    return out_threadpool_;
+  }
   enum Status {
     SYNC_CHECKBOOK = 0,
     PREPARE_SLICE,
     SYNC_SLICE,
     FINISHED,
   };
-  FileTransferClient(int thread_pool_size) :
-    pool_("FileTransferClientThreadPool", thread_pool_size),
+  FileTransferClient(const string &host, const string &port,
+                     const string &src_filename, const string &dest_filename,
+                     int thread_pool_size) :
+    host_(host), port_(port), src_filename_(src_filename),
+    dest_filename_(dest_filename), pool_("FileTransferClientThreadPool", thread_pool_size),
     sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK) {
   }
   void Schedule();
@@ -52,6 +76,7 @@ class FileTransferClient {
   static const int kSyncCheckBookRetry = 3;
   typedef deque<boost::shared_ptr<TransferTask> > TransferTaskQueue;
   typedef list<boost::shared_ptr<SliceStatus> > SliceStatusLink;
+  ThreadPool *out_threadpool_;
   ThreadPool pool_;
   boost::function0<void> finish_handler_;
   PCQueue<boost::shared_ptr<TransferTask> > transfer_task_queue_;
@@ -66,6 +91,7 @@ class FileTransferClient {
   Status status_;
   int sync_checkbook_failed_;
   bool finished_;
+  string host_, port_, src_filename_, dest_filename_;
   friend class TransferTask;
 };
 #endif  // FILE_TRANSFER_CLIENT_HPP_
