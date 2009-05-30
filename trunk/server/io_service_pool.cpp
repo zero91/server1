@@ -48,6 +48,9 @@ void IOServicePool::Stop() {
   for (size_t i = 0; i < work_.size(); ++i) {
     work_[i].reset();
   }
+  boost::this_thread::yield();
+  boost::this_thread::yield();
+  boost::this_thread::yield();
   threadpool_.Stop();
   work_.clear();
   io_services_.clear();

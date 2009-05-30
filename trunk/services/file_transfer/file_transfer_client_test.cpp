@@ -24,7 +24,7 @@
 #include <gtest/gtest.h>
 DEFINE_string(server, "localhost", "The test server");
 DEFINE_string(port, "6789", "The test server");
-DEFINE_int32(num_connections, 4, "The test connections number");
+DEFINE_int32(num_connections, 80, "The test connections number");
 DEFINE_int32(num_threads, 4, "The test server thread number");
 DEFINE_string(doc_root, ".", "The document root of the file transfer");
 DECLARE_bool(logtostderr);
@@ -109,7 +109,6 @@ class FileTransferTest : public testing::Test {
   boost::scoped_ptr<FileTransferClient> file_transfer_client_;
 };
 
-/*
 TEST_F(FileTransferTest, Test1) {
   const int kFileSize = CheckBook::GetSliceSize() + 1;
   string content;
@@ -158,10 +157,9 @@ TEST_F(FileTransferTest, Test2) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
-*/
 
 TEST_F(FileTransferTest, Test3) {
-  const int kConnectionNumber = 120;
+  const int kConnectionNumber = FLAGS_num_connections;
   const int kSliceNumber = 100;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
@@ -193,7 +191,6 @@ TEST_F(FileTransferTest, Test3) {
   boost::filesystem::remove(dest_path);
 }
 
-/*
 TEST_F(FileTransferTest, Test4) {
   const int kConnectionNumber = 20;
   const int kSliceNumber = 100;
@@ -226,6 +223,7 @@ TEST_F(FileTransferTest, Test4) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
+
 TEST_F(FileTransferTest, Test5) {
   const int kConnectionNumber = 20;
   const int kSliceNumber = 100;
@@ -276,8 +274,8 @@ TEST_F(FileTransferTest, Test5) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
+
 TEST_F(FileTransferTest, Test6) {
-//  const int kConnectionNumber = 20;
   const int kConnectionNumber = 2;
   const int kSliceNumber = 100;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
@@ -402,7 +400,6 @@ TEST_F(FileTransferTest, Test7) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
-*/
 
 int main(int argc, char **argv) {
   FLAGS_v = 2;
