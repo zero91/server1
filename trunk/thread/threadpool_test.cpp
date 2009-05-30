@@ -39,7 +39,7 @@ TEST_F(ThreadPoolTest, Test1) {
     for (int i = 0; i < item_size; ++i) {
       EXPECT_EQ(v[i], 0xbeef);
     }
-    VLOG(2) << "thread stopped";
+    VLOG(0) << "thread stopped" << k;
   }
 }
 

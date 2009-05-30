@@ -12,7 +12,6 @@
 #include "base/base.hpp"
 #include "base/executor.hpp"
 #include "thread/pcqueue.hpp"
-#include <boost/thread/tss.hpp>
 #include <glog/logging.h>
 class ThreadPool : public boost::noncopyable, public Executor {
  public:
@@ -21,17 +20,17 @@ class ThreadPool : public boost::noncopyable, public Executor {
   void Start() {
     VLOG(1) << name() << " Start.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
-    if (threads_.size() > 0) {
+    if (threads_.get() != NULL) {
       VLOG(1) << name() << " Running.";
       return;
     }
+    threads_.reset(new boost::thread_group);
     for (int i = 0; i < size_; ++i) {
-      boost::shared_ptr<boost::thread> t(new boost::thread(&ThreadPool::Loop, this, i));
-      threads_.push_back(t);
+      threads_->create_thread(boost::bind(&ThreadPool::Loop, this, i));
     }
   }
   bool IsRunning() {
-    return !threads_.empty();
+    return threads_.get() && threads_->size() > 0;
   }
   const string name() const {
     return name_;
@@ -42,19 +41,16 @@ class ThreadPool : public boost::noncopyable, public Executor {
   void Stop() {
     VLOG(1) << name() << " Stop.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
-    if (threads_.empty()) {
+    if (threads_.get() == NULL) {
       VLOG(1) << name() << " already stop.";
       return;
     }
-    for (int i = 0; i < threads_.size(); ++i) {
+    for (int i = 0; i < threads_->size(); ++i) {
       pcqueue_.Push(boost::function0<void>());
     }
-    for (int i = 0; i < threads_.size(); ++i) {
-      threads_[i]->join();
-      VLOG(2) << name() << " join thread: " << i;
-    }
+    threads_->join_all();
     VLOG(1) << "Stopped";
-    threads_.clear();
+    threads_.reset();
   }
   void PushTask(const boost::function0<void> &t) {
     if (t.empty()) {
@@ -69,9 +65,6 @@ class ThreadPool : public boost::noncopyable, public Executor {
   }
  private:
   void Loop(int i) {
-    sigset_t mask;
-    sigfillset(&mask); /* Mask all allowed signals */
-    int rc = pthread_sigmask(SIG_SETMASK, &mask, NULL);
     VLOG(2) << name() << " worker " << i << " start.";
     while (1) {
       try {
@@ -90,7 +83,7 @@ class ThreadPool : public boost::noncopyable, public Executor {
     }
     VLOG(2) << name() << " woker " << i << " stop";
   }
-  vector<boost::shared_ptr<boost::thread> > threads_;
+  boost::scoped_ptr<boost::thread_group> threads_;
   int size_;
   boost::mutex run_mutex_;
   PCQueue<boost::function0<void> > pcqueue_;

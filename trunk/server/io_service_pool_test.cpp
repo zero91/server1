@@ -19,8 +19,8 @@ class IOServicePoolTest : public testing::Test {
     *cnt = 0xbeef;
   }
   void Inc2(int *cnt) {
-    VLOG(2) << "Inc2 call, cnt: " << *cnt;
-    sleep(rand() % 100 + 1);
+    VLOG(0) << "Inc2 call, cnt: " << *cnt;
+    sleep(rand() % 10 + 1);
     *cnt = 0xbeef;
   }
  protected:
@@ -45,7 +45,7 @@ TEST_F(IOServicePoolTest, Test1) {
     for (int i = 0; i < item_size; ++i) {
       EXPECT_EQ(v[i], 0xbeef);
     }
-    VLOG(2) << "thread stopped";
+    VLOG(0) << "thread stopped" << k;
   }
 }
 
@@ -60,13 +60,13 @@ TEST_F(IOServicePoolTest, Test2) {
     for (int i = 0; i < item_size; ++i) {
       boost::function0<void> handler = boost::bind(
           &IOServicePoolTest::Inc2, this, &v[i]);
-      p.get_io_service().dispatch(handler);
+      p.get_io_service().post(handler);
     }
     p.Stop();
     for (int i = 0; i < item_size; ++i) {
       EXPECT_EQ(v[i], 0xbeef);
     }
-    VLOG(2) << "thread stopped";
+    VLOG(0) << "thread stopped" << k;
   }
 }
 
