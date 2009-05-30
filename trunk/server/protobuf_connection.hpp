@@ -71,7 +71,8 @@ class FullDualChannel : virtual public RpcController,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) = 0;
   virtual CloseSignal *close_signal() = 0;
-  virtual bool IsConnected() const = 0;
+  virtual bool IsConnected() = 0;
+  virtual void Disconnect() = 0;
 };
 
 class ProtobufDecoder {
@@ -124,19 +125,22 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
           ProtobufConnection*> > HandlerTable;
  public:
   explicit ProtobufConnection(int timeout) : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(timeout) {
+      handler_table_(new HandlerTable), timeout_ms_(timeout), closed_(false) {
     VLOG(2) << "New protobuf connection" << this << " timeout: " << timeout;
   }
 
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(0) {
+      handler_table_(new HandlerTable), timeout_ms_(0), closed_(false) {
     VLOG(2) << "New protobuf connection" << this;
   }
   CloseSignal *close_signal() {
     return Connection::close_signal();
   }
-  virtual bool IsConnected() const {
+  virtual bool IsConnected() {
     return Connection::IsConnected();
+  }
+  virtual void Disconnect() {
+    return Connection::Close();
   }
 
   ~ProtobufConnection();
@@ -165,5 +169,6 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
   // The response handler table is per connection.
   HandlerTable response_handler_table_;
   boost::mutex response_handler_table_mutex_;
+  bool closed_;
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

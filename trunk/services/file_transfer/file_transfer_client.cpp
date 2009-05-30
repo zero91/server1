@@ -1,5 +1,6 @@
 #include "services/file_transfer/file_transfer_client.hpp"
 #include "services/file_transfer/file_transfer_service.hpp"
+#include "server/full_dual_channel_proxy.hpp"
 #include <boost/filesystem/operations.hpp>
 #include <boost/thread/shared_mutex.hpp>
 class SliceStatus {
@@ -38,19 +39,19 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
     return &slice_request_;
   }
   bool IsConnected() const {
-    return !channel_closed_;
+    return proxy_->IsConnected();
   }
  private:
   TransferTask(
       FileTransferClient *file_transfer,
-      FullDualChannel *channel, int id);
+      boost::shared_ptr<FullDualChannelProxy> proxy, int id);
   void SyncSliceDone();
   void ChannelClosed() {
     VLOG(2) << "ChannelClosed";
-    channel_closed_ = true;
     file_transfer_->ChannelClosed(shared_from_this());
   }
   static const int kRetry = 2;
+  boost::shared_ptr<FullDualChannelProxy> proxy_;
   FileTransfer::FileTransferService::Stub stub_;
   FileTransfer::SliceRequest slice_request_;
   FileTransfer::SliceResponse slice_response_;
@@ -59,7 +60,6 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   FileTransferClient *file_transfer_;
   boost::shared_ptr<SliceStatus> status_;
   int id_;
-  bool channel_closed_;
 };
 
 void FileTransferClient::ChannelClosed(boost::shared_ptr<TransferTask> tasker) {
@@ -96,8 +96,14 @@ void FileTransferClient::Start() {
 }
 
 void FileTransferClient::Stop() {
+  if (!pool_.IsRunning()) {
+    LOG(WARNING) << "FileTransferClient already stopped.";
+    return;
+  }
   boost::shared_ptr<TransferTask> tasker;
-  transfer_task_queue_.Push(tasker);
+  for (int i = 0; i < transfer_task_set_.size(); ++i) {
+    transfer_task_queue_.Push(tasker);
+  }
   pool_.Stop();
   if (!finished()) {
     VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName();
@@ -143,6 +149,9 @@ void FileTransferClient::Schedule() {
     case SYNC_SLICE:
       ScheduleSlice();
       return;
+    case FINISHED:
+      VLOG(1) << "Finished";
+      return;
   }
 }
 
@@ -155,6 +164,7 @@ void FileTransferClient::SyncCheckBook() {
   }
   if (sync_checkbook_failed_ >= kSyncCheckBookRetry) {
     LOG(WARNING) << "SyncCheckbook failed: " << sync_checkbook_failed_;
+    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
   if (checkbook_->meta().synced_with_dest()) {
@@ -164,48 +174,42 @@ void FileTransferClient::SyncCheckBook() {
     return;
   }
   boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
+  if (tasker.get() == NULL) {
+    LOG(WARNING) << "Get null tasker, return";
+    return;
+  }
   if (!tasker->SyncCheckBook(checkbook_.get())) {
     LOG(WARNING) << "Transfer checkbook failed, tasker: " << tasker->IsConnected();
     ++sync_checkbook_failed_;
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
-      if (pool_.IsRunning()) {
-        pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
-      } else {
-        LOG(WARNING) << "Pool is stopped";
-      }
     }
+    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
   } else {
     status_ = PREPARE_SLICE;
     checkbook_->mutable_meta()->set_synced_with_dest(true);
     checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
-      if (pool_.IsRunning()) {
-        pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
-      } else {
-        LOG(WARNING) << "Pool is stopped";
-      }
     }
+    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
   }
 }
 
 bool TransferTask::SyncCheckBook(
     const FileTransfer::CheckBook *checkbook) {
-  if (IsConnected()) {
-    VLOG(1) << "SyncCheckBook";
-    stub_.ReceiveCheckBook(&controller_,
-                           checkbook,
-                           &checkbook_response_,
-                           NULL);
-    controller_.Wait();
-    if (controller_.Failed() || !checkbook_response_.succeed()) {
-      VLOG(2) << "transfer id: " << id_ << " sync checkbook failed";
-      controller_.Reset();
-      return false;
-    }
-    return true;
+  VLOG(1) << "SyncCheckBook";
+  stub_.ReceiveCheckBook(&controller_,
+                         checkbook,
+                         &checkbook_response_,
+                         NULL);
+  controller_.Wait();
+  if (controller_.Failed() || !checkbook_response_.succeed()) {
+    VLOG(2) << "transfer id: " << id_ << " sync checkbook failed";
+    controller_.Reset();
+    return false;
   }
+  return true;
 }
 
 void FileTransferClient::PrepareSlice() {
@@ -221,7 +225,8 @@ void FileTransferClient::PrepareSlice() {
   src_file_.open(meta.src_filename());
   if (!src_file_.is_open()) {
     LOG(WARNING) << "Fail to open source file: "
-                 << meta.src_filename();
+      << meta.src_filename();
+    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
     return;
   }
 
@@ -241,6 +246,12 @@ void FileTransferClient::PrepareSlice() {
 }
 
 void FileTransferClient::ScheduleSlice() {
+  boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
+  if (tasker.get() == NULL) {
+    LOG(WARNING) << "Get null tasker, return";
+    return;
+  }
+  VLOG(2) << "Get tasker " << tasker->id();
   boost::shared_ptr<SliceStatus> slice;
   bool in_transfering = false;
   bool call_finish_handler = false;
@@ -275,9 +286,9 @@ void FileTransferClient::ScheduleSlice() {
         break;
       }
     }
-    if (slice.get() == NULL && !in_transfering && !finished_) {
+    if (slice.get() == NULL && !in_transfering && !finished()) {
       VLOG(1) << "Transfer success!";
-      finished_ = true;
+      status_ = FINISHED;
       call_finish_handler = true;
     }
   }
@@ -291,21 +302,16 @@ void FileTransferClient::ScheduleSlice() {
   }
   if (slice.get() == NULL) {
     VLOG(2) << "Get null slice, retry";
-    pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    boost::this_thread::yield();
+    if (tasker->IsConnected()) {
+      transfer_task_queue_.Push(tasker);
+      pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    }
     return;
   }
-  boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
-  if (tasker.get() == NULL) {
-    VLOG(2) << "ScheduleSlice get NULL tasker, exit.";
-    return;
+  if (tasker->IsConnected()) {
+    SyncSlice(slice, tasker);
   }
-  VLOG(2) << "Get tasker " << tasker->id();
-  if (!tasker->IsConnected()) {
-    VLOG(2) << "Task is not connected!";
-    return;
-  }
-  VLOG(2) << "Get task: " << tasker->id();
-  SyncSlice(slice, tasker);
 }
 
 void FileTransferClient::SyncSlice(
@@ -326,17 +332,13 @@ void FileTransferClient::SyncSlice(
 
 void TransferTask::SyncSlice() {
   status_->set_status(SliceStatus::TRANSFERING);
-  if (IsConnected()) {
-    VLOG(1) << "SyncSlice: " << status_->index();
-    stub_.ReceiveSlice(&controller_,
-                       &slice_request_,
-                       &slice_response_,
-                       NewClosure(boost::bind(
-                           &TransferTask::SyncSliceDone,
-                           this)));
-  } else {
-    file_transfer_->SyncSliceDone(shared_from_this(), false, status_);
-  }
+  VLOG(1) << "SyncSlice: " << status_->index();
+  stub_.ReceiveSlice(&controller_,
+                     &slice_request_,
+                     &slice_response_,
+                     NewClosure(boost::bind(
+                         &TransferTask::SyncSliceDone,
+                         this)));
 }
 
 void TransferTask::SyncSliceDone() {
@@ -360,32 +362,29 @@ void FileTransferClient::SyncSliceDone(
   VLOG(2) << "SyncSlice Done";
   if (tasker->IsConnected()) {
     transfer_task_queue_.Push(tasker);
-  }
-  if (pool_.IsRunning()) {
-    if (succeed) {
-      status->set_status(SliceStatus::DONE);
-    } else {
-      status->set_status(SliceStatus::IDLE);
-    }
     pool_.PushTask(boost::bind(&FileTransferClient::Schedule, this));
+  }
+  if (succeed) {
+    status->set_status(SliceStatus::DONE);
   } else {
-    LOG(WARNING) << pool_.name() << " is stopped";
+    status->set_status(SliceStatus::IDLE);
   }
 }
 
 TransferTask::TransferTask(
     FileTransferClient *file_transfer,
-    FullDualChannel *channel, int id)
-    : stub_(channel), id_(id), file_transfer_(file_transfer), channel_closed_(false) {
+    boost::shared_ptr<FullDualChannelProxy> proxy, int id)
+    : proxy_(proxy), stub_(proxy_.get()), id_(id), file_transfer_(file_transfer) {
 }
 
 boost::shared_ptr<TransferTask> TransferTask::Create(
     FileTransferClient *file_transfer,
     FullDualChannel *channel, int id) {
+  boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(channel));
   boost::shared_ptr<TransferTask> tasker(new TransferTask(
           file_transfer,
-          channel, id));
-  channel->close_signal()->connect(
+          proxy, id));
+  proxy->close_signal()->connect(
       FullDualChannel::CloseSignal::slot_type(
           &TransferTask::ChannelClosed, tasker.get()).track(tasker));
   return tasker;

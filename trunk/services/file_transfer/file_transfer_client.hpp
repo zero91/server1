@@ -19,7 +19,7 @@ class FileTransferClient {
     finish_handler_ = h;
   }
   bool finished() const {
-    return finished_;
+    return status_ == FINISHED;
   }
   static FileTransferClient *Create(
       const string &host, const string &port,
@@ -32,7 +32,8 @@ class FileTransferClient {
   enum Status {
     SYNC_CHECKBOOK = 0,
     PREPARE_SLICE,
-    SYNC_SLICE
+    SYNC_SLICE,
+    FINISHED,
   };
   FileTransferClient(int thread_pool_size) :
     pool_("FileTransferClientThreadPool", thread_pool_size),

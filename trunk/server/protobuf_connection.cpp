@@ -45,16 +45,25 @@ void ProtobufConnection::Cleanup() {
   VLOG(2) << "ProtobufConnection::Cleanup";
   boost::shared_ptr<ProtobufDecoder> decoder;
   int i = 0;
-  for (HandlerTable::iterator it = response_handler_table_.begin();
-       it != response_handler_table_.end();) {
-    HandlerTable::iterator next_it = it;
-    ++next_it;
-    LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " Cleanup, NO " << ++i;
-    it->second(decoder, this);
-    response_handler_table_.erase(it);
-    it = next_it;
+  {
+    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    if (closed_) {
+      LOG(WARNING) << "Already closed";
+      return;
+    }
+    for (HandlerTable::iterator it = response_handler_table_.begin();
+         it != response_handler_table_.end();) {
+      HandlerTable::iterator next_it = it;
+      ++next_it;
+      LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " Cleanup, NO " << ++i;
+      it->second(decoder, this);
+      response_handler_table_.erase(it);
+      it = next_it;
+    }
+    closed_ = true;
   }
   Connection::Cleanup();
+  delete this;
 }
 
 template <>
@@ -205,6 +214,10 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     handler = it->second;
   } else {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    if (closed_) {
+      LOG(WARNING) << "Already closed";
+      return;
+    }
     it = response_handler_table_.find(meta.identify());
     if (it == response_handler_table_.end()) {
       VLOG(2) << name() << " : " << "Unknown request" << meta.DebugString();
@@ -271,6 +284,10 @@ void ProtobufConnection::Timeout(const boost::system::error_code& e,
       controller);
   {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    if (closed_) {
+      LOG(WARNING) << "Already closed";
+      return;
+    }
     HandlerTable::iterator it = response_handler_table_.find(response_identify);
     if (it == response_handler_table_.end()) {
       VLOG(2) << name() << " : "
@@ -296,6 +313,13 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
   ProtobufLineFormat::MetaData meta;
   {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    if (closed_) {
+      LOG(WARNING) << "Already closed";
+      if (done) {
+        done->Run();
+      }
+      return;
+    }
     HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
     while (it != response_handler_table_.end()) {
       static int seq = 1;
@@ -323,7 +347,7 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
         new boost::asio::deadline_timer(socket_->get_io_service()));
     timer->expires_from_now(boost::posix_time::milliseconds(timeout_ms_));
     const boost::function1<void, const boost::system::error_code&> h =
-          boost::bind(&ProtobufConnection::Timeout, this, _1, response_identify, controller, done, timer);
+      boost::bind(&ProtobufConnection::Timeout, this, _1, response_identify, controller, done, timer);
     timer->async_wait(h);
   }
 }

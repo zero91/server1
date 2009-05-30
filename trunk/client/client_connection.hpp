@@ -10,14 +10,13 @@
 #ifndef CLIENT_CONNECTION_HPP
 #define CLIENT_CONNECTION_HPP
 #include <boost/thread/shared_mutex.hpp>
-#include "server/protobuf_connection.hpp"
+#include "server/full_dual_channel_proxy.hpp"
 #include "server/io_service_pool.hpp"
 class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &server, const string &port)
-    : connection_(NULL), io_service_pool_("ClientIOService", 1),
-      threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL),
-      closed_(true) {
+    : io_service_pool_("ClientIOService", 1),
+      threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
       VLOG(2) << "Constructor client connection";
     connection_template_.set_name(server + "::" + port + "::Client");
   }
@@ -29,18 +28,7 @@ class ClientConnection : public FullDualChannel {
                           const google::protobuf::Message *request,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) {
-    if (IsConnected()) {
-      connection_->CallMethod(method, controller, request, response, done);
-    } else {
-      RpcController *rpc_controller = dynamic_cast<RpcController*>(
-          controller);
-      rpc_controller->SetFailed("Connection is NULL");
-      rpc_controller->Notify();
-      LOG(WARNING) << "Callmethod but connection is null";
-      if (done) {
-        done->Run();
-      }
-    }
+    proxy_->CallMethod(method, controller, request, response, done);
   }
 
   void set_name(const string &name) {
@@ -56,23 +44,19 @@ class ClientConnection : public FullDualChannel {
   void set_threadpool(ThreadPool *out_threadpool) {
     out_threadpool_ = out_threadpool;
   }
-  bool IsConnected() const {
-    return !closed_ && connection_ && connection_->IsConnected();
+  bool IsConnected() {
+    return proxy_.get() && proxy_->IsConnected();
   }
   boost::signals2::signal<void()> *close_signal() {
-    return &close_signal_;
+    return proxy_.get() ? proxy_->close_signal() : NULL;
   }
   bool Connect();
   void Disconnect() {
-    if (connection_) {
-      string name = connection_->name();
-      VLOG(2) << "Disconnect: " << name;
-      closed_ = true;
-      connection_->Close();
+    if (proxy_.get() && proxy_->IsConnected()) {
+      VLOG(2) << "Disconnect: " << name();
+      proxy_->Disconnect();
       notifier_->Wait();
-      VLOG(2) << "Disconnect after notifer wait: " << name;
-      connection_ = NULL;
-      close_signal_();
+      VLOG(2) << "Disconnect after notifer wait: " << name();
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();
@@ -85,7 +69,7 @@ class ClientConnection : public FullDualChannel {
     VLOG(2) << "~ClientConnection";
   }
  private:
-  void ConnectionClose(ProtobufConnection *connection);
+  void ConnectionClose();
   boost::asio::io_service &GetIOService() {
     if (out_io_service_pool_) {
       return out_io_service_pool_->get_io_service();
@@ -94,15 +78,13 @@ class ClientConnection : public FullDualChannel {
   }
 
   static const int kClientThreadPoolSize = 1;
-  ProtobufConnection *connection_;
+  boost::shared_ptr<FullDualChannelProxy> proxy_;
   ProtobufConnection connection_template_;
   IOServicePool io_service_pool_;
   ThreadPool threadpool_;
   ThreadPool *out_threadpool_;
   IOServicePool *out_io_service_pool_;
   string server_, port_;
-  bool closed_;
-  boost::signals2::signal<void()> close_signal_;
   boost::shared_ptr<Notifier> notifier_;
 };
 #endif  // CLIENT_CONNECTION_HPP

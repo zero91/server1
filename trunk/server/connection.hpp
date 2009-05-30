@@ -350,7 +350,6 @@ void Connection::Cleanup() {
   socket_.reset();
   VLOG(2) << "Cleanup, num_slots: " << close_signal_.num_slots();
   close_signal_();
-  delete this;
 }
 
 void Connection::Run(const boost::function0<void> &f) {

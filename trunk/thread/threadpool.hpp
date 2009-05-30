@@ -19,10 +19,10 @@ class ThreadPool : public boost::noncopyable, public Executor {
   ThreadPool(const string name, int size) : name_(name), size_(size) {
   }
   void Start() {
-    VLOG(2) << name() << " Start.";
+    VLOG(1) << name() << " Start.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
     if (threads_.size() > 0) {
-      VLOG(2) << name() << " Running.";
+      VLOG(1) << name() << " Running.";
       return;
     }
     for (int i = 0; i < size_; ++i) {
@@ -36,11 +36,14 @@ class ThreadPool : public boost::noncopyable, public Executor {
   const string name() const {
     return name_;
   }
+  int size() const {
+    return size_;
+  }
   void Stop() {
-    VLOG(2) << name() << " Stop.";
+    VLOG(1) << name() << " Stop.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
     if (threads_.empty()) {
-      VLOG(2) << name() << " already stop.";
+      VLOG(1) << name() << " already stop.";
       return;
     }
     for (int i = 0; i < threads_.size(); ++i) {
@@ -50,6 +53,7 @@ class ThreadPool : public boost::noncopyable, public Executor {
       threads_[i]->join();
       VLOG(2) << name() << " join thread: " << i;
     }
+    VLOG(1) << "Stopped";
     threads_.clear();
   }
   void PushTask(const boost::function0<void> &t) {

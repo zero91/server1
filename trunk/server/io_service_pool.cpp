@@ -50,7 +50,7 @@ void IOServicePool::Stop() {
   }
   threadpool_.Stop();
   work_.clear();
-//  io_services_.clear();
+  io_services_.clear();
 }
 
 boost::asio::io_service &IOServicePool::get_io_service() {

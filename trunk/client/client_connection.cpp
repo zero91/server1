@@ -8,12 +8,12 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "client/client_connection.hpp"
-void ClientConnection::ConnectionClose(ProtobufConnection *connection) {
+void ClientConnection::ConnectionClose() {
   VLOG(2) << "ClientConnection::ConnectionClose";
   notifier_->Notify();
 }
 bool ClientConnection::Connect() {
-  if (connection_ && connection_->IsConnected()) {
+  if (IsConnected()) {
     LOG(WARNING) << "Connect but IsConnected";
     return true;
   }
@@ -38,15 +38,15 @@ bool ClientConnection::Connect() {
     return false;
   }
   notifier_.reset(new Notifier);
-  connection_ = connection_template_.Clone();
-  connection_->set_socket(socket);
-  closed_ = !connection_->IsConnected();
-  connection_->close_signal()->connect(
-      boost::bind(&ClientConnection::ConnectionClose, this, connection_));
+  ProtobufConnection *connection = connection_template_.Clone();
+  connection->set_socket(socket);
   if (out_threadpool_) {
-    connection_->set_executor(out_threadpool_);
+    connection->set_executor(out_threadpool_);
   } else {
-    connection_->set_executor(&threadpool_);
+    connection->set_executor(&threadpool_);
   }
+  proxy_ = FullDualChannelProxy::Create(connection);
+  proxy_->close_signal()->connect(
+      boost::bind(&ClientConnection::ConnectionClose, this));
   return true;
 }

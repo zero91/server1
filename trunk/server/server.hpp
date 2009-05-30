@@ -15,7 +15,7 @@
 #include <vector>
 #include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
-#include "server/connection.hpp"
+#include "server/full_dual_channel_proxy.hpp"
 #include "server/io_service_pool.hpp"
 #include "thread/threadpool.hpp"
 
@@ -52,8 +52,8 @@ private:
   typedef hash_map<string, AcceptorResource> AcceptorTable;
   void ReleaseAcceptor(const string &host);
 
-  void RemoveConnection(Connection *connection);
-  typedef hash_set<Connection*> ConnectionTable;
+  void RemoveProxy(FullDualChannelProxy *);
+  typedef hash_set<boost::shared_ptr<FullDualChannelProxy> > ChannelTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
                     Connection *new_connection);
@@ -62,8 +62,8 @@ private:
   IOServicePool io_service_pool_;
   ThreadPool threadpool_;
   friend class AcceptorHandler;
-  ConnectionTable connection_table_;
-  boost::mutex connection_table_mutex_;
+  ChannelTable channel_table_;
+  boost::mutex channel_table_mutex_;
 
   AcceptorTable acceptor_table_;
   boost::mutex acceptor_table_mutex_;

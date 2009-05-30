@@ -9,6 +9,7 @@
 
 #include "glog/logging.h"
 #include "server/server.hpp"
+#include "server/full_dual_channel_proxy.hpp"
 #include <boost/bind.hpp>
 class AcceptorHandler {
  public:
@@ -101,20 +102,21 @@ void Server::Listen(const string &address,
 }
 
 void Server::Stop() {
-  if (!is_running_) {
-    VLOG(2) << "Server already stopped";
-    return;
-  }
-  is_running_ = false;
   VLOG(2) << "Server stop";
   {
-    boost::mutex::scoped_lock locker(connection_table_mutex_);
-    for (ConnectionTable::iterator it = connection_table_.begin();
-         it != connection_table_.end(); ++it) {
-      Connection *connection = *it;
-      LOG(WARNING) << "Release connection : " << connection->name();
-      connection->Close();
+    boost::mutex::scoped_lock locker(channel_table_mutex_);
+    if (!is_running_) {
+      VLOG(2) << "Server already stopped";
+      return;
     }
+    is_running_ = false;
+    for (ChannelTable::iterator it = channel_table_.begin();
+         it != channel_table_.end(); ++it) {
+      boost::shared_ptr<FullDualChannelProxy> channel = *it;
+      channel->close_signal()->disconnect_all_slots();
+      channel->Disconnect();
+    }
+    channel_table_.clear();
   }
   {
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
@@ -124,16 +126,17 @@ void Server::Stop() {
     }
     acceptor_table_.clear();
   }
+  LOG(WARNING) << "Stop thread pool";
   threadpool_.Stop();
+  LOG(WARNING) << "Stop io service pool";
   io_service_pool_.Stop();
+  LOG(WARNING) << "Server stopped";
 }
 
-void Server::RemoveConnection(Connection *connection) {
-  {
-    boost::mutex::scoped_lock locker(connection_table_mutex_);
-    connection_table_.erase(connection);
-    VLOG(2) << "Remove " << connection->name();
-  }
+void Server::RemoveProxy(FullDualChannelProxy *proxy) {
+  boost::mutex::scoped_lock locker(channel_table_mutex_);
+  channel_table_.erase(proxy->shared_from_this());
+  VLOG(1) << "Remove proxy";
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
@@ -142,11 +145,13 @@ void Server::HandleAccept(const boost::system::error_code& e,
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
   new_connection->set_executor(&threadpool_);
-  new_connection->close_signal()->connect(
-      boost::bind(&Server::RemoveConnection, this, new_connection));
+  FullDualChannel *full_dual_channel = dynamic_cast<FullDualChannel*>(new_connection);
+  boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(full_dual_channel));
+  proxy->close_signal()->connect(boost::bind(
+      &Server::RemoveProxy, this, proxy.get()));
   {
-    boost::mutex::scoped_lock locker(connection_table_mutex_);
-    connection_table_.insert(new_connection);
+    boost::mutex::scoped_lock locker(channel_table_mutex_);
+    channel_table_.insert(proxy);
     VLOG(2) << "Insert " << new_connection->name();
   }
   new_connection->ScheduleRead();

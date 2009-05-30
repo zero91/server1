@@ -31,7 +31,10 @@ class PCQueue : public boost::noncopyable, public boost::enable_shared_from_this
   void Push(const Type &t) {
     boost::mutex::scoped_lock locker(mutex_);
     queue_.push_back(t);
-    queue_not_empty_.notify_one();
+    // Benchmark show notify_all is better than notify_one, 5.09ms vs 5.90
+    // running file_transfer_client_test.
+    // queue_not_empty_.notify_one();
+    queue_not_empty_.notify_all();
   }
 
  private:

@@ -109,6 +109,7 @@ class FileTransferTest : public testing::Test {
   boost::scoped_ptr<FileTransferClient> file_transfer_client_;
 };
 
+/*
 TEST_F(FileTransferTest, Test1) {
   const int kFileSize = CheckBook::GetSliceSize() + 1;
   string content;
@@ -157,6 +158,7 @@ TEST_F(FileTransferTest, Test2) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
+*/
 
 TEST_F(FileTransferTest, Test3) {
   const int kConnectionNumber = 120;
@@ -191,6 +193,7 @@ TEST_F(FileTransferTest, Test3) {
   boost::filesystem::remove(dest_path);
 }
 
+/*
 TEST_F(FileTransferTest, Test4) {
   const int kConnectionNumber = 20;
   const int kSliceNumber = 100;
@@ -399,6 +402,7 @@ TEST_F(FileTransferTest, Test7) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
+*/
 
 int main(int argc, char **argv) {
   FLAGS_v = 2;
