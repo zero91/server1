@@ -14,9 +14,9 @@
 #include "server/io_service_pool.hpp"
 class ClientConnection : public FullDualChannel {
  public:
-  ClientConnection(const string &server, const string &port)
-    : io_service_pool_("ClientIOService", 1),
-      threadpool_("ClientThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
+  ClientConnection(const string &name, const string &server, const string &port)
+    : io_service_pool_(name + ".IOService", 1),
+      threadpool_(name + ".ThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
       VLOG(2) << "Constructor client connection";
     connection_template_.set_name(server + "::" + port + "::Client");
   }
@@ -31,9 +31,6 @@ class ClientConnection : public FullDualChannel {
     proxy_->CallMethod(method, controller, request, response, done);
   }
 
-  void set_name(const string &name) {
-    connection_template_.set_name(name);
-  }
   const string name() {
     return connection_template_.name();
   }
@@ -66,6 +63,9 @@ class ClientConnection : public FullDualChannel {
     }
   }
   ~ClientConnection() {
+    CHECK(!IsConnected());
+    CHECK(!io_service_pool_.IsRunning());
+    CHECK(!threadpool_.IsRunning());
     VLOG(2) << "~ClientConnection";
   }
  private:

@@ -12,7 +12,7 @@
 #include <glog/logging.h>
 IOServicePool::IOServicePool(const string &name, size_t pool_size)
   : name_(name), pool_size_(pool_size),
-    next_io_service_(0), threadpool_(name + " threadpool", pool_size) {
+    next_io_service_(0), threadpool_(name + ".ThreadPool", pool_size) {
   CHECK_GT(pool_size, 0);
 
 }

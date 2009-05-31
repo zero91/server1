@@ -17,6 +17,9 @@ class ThreadPool : public boost::noncopyable, public Executor {
  public:
   ThreadPool(const string name, int size) : name_(name), size_(size) {
   }
+  ~ThreadPool() {
+    CHECK(!IsRunning());
+  }
   void Start() {
     VLOG(1) << name() << " Start.";
     boost::mutex::scoped_try_lock locker(run_mutex_);
@@ -26,7 +29,7 @@ class ThreadPool : public boost::noncopyable, public Executor {
     }
     threads_.reset(new boost::thread_group);
     for (int i = 0; i < size_; ++i) {
-      threads_->create_thread(boost::bind(&ThreadPool::Loop, this, i));
+      threads_->create_thread(boost::bind(&ThreadPool::Loop, this, i, name_.empty() ? "NoName" : strdup(name_.c_str())));
     }
   }
   bool IsRunning() {
@@ -57,31 +60,31 @@ class ThreadPool : public boost::noncopyable, public Executor {
       LOG(WARNING) << name() <<  " can't push null task.";
       return;
     }
-    VLOG(2) << name() << " push task.";
     pcqueue_.Push(t);
   }
   void Run(const boost::function0<void> &f) {
     PushTask(f);
   }
  private:
-  void Loop(int i) {
-    VLOG(2) << name() << " worker " << i << " start.";
+  void Loop(int i, const char *pool_name) {
+    VLOG(2) << pool_name << " worker " << i << " start.";
     while (1) {
       try {
-        VLOG(2) << name() << " worker " << i << " wait task.";
+        VLOG(2) << pool_name << " worker " << i << " wait task.";
         boost::function0<void> h = pcqueue_.Pop();
         if (h.empty()) {
-          VLOG(2) << name() << " worker " << i << " get empty task, so break.";
+          VLOG(2) << pool_name << " worker " << i << " get empty task, so break.";
           break;
         }
-        VLOG(2) << name() << " woker " << i << " running task";
+        VLOG(2) << pool_name << " woker " << i << " running task";
         h();
-        VLOG(2) << name() << " woker " << i << " finish task";
+        VLOG(2) << pool_name << " woker " << i << " finish task";
       } catch (std::exception e) {
-        VLOG(2) << name() << " woker " << i << " catch exception " << e.what();
+        VLOG(2) << pool_name << " woker " << i << " catch exception " << e.what();
       }
     }
-    VLOG(2) << name() << " woker " << i << " stop";
+    VLOG(2) << pool_name << " woker " << i << " stop";
+    delete pool_name;
   }
   boost::scoped_ptr<boost::thread_group> threads_;
   int size_;

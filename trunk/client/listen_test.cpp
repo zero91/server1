@@ -98,8 +98,7 @@ class ListenTest : public testing::Test {
     server_connection_->set_name("Server");
     server_.reset(new Server(2, FLAGS_num_threads));
     VLOG(2) << "New client connection";
-    client_connection_.reset(new ClientConnection(FLAGS_server, FLAGS_port));
-    client_connection_->set_name("Client");
+    client_connection_.reset(new ClientConnection("ListenTestMainClient", FLAGS_server, FLAGS_port));
     client_stub_.reset(new Hello::EchoService2::Stub(client_connection_.get()));
     pcqueue_.reset(new PCQueue<bool>);
     echo_service_.reset(new EchoService2Impl(pcqueue_));
@@ -204,7 +203,8 @@ TEST_F(ListenTest, MultiThreadMultConnectionTest1) {
   vector<boost::shared_ptr<ClientConnection> > connections;
   vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
   for (int i = 0; i < FLAGS_num_connections; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    string name("MultiThreadMultConnectionTest1Client." + boost::lexical_cast<string>(i));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(name, FLAGS_server, FLAGS_port));
     r->RegisterService(echo_service_.get());
     r->set_threadpool(&pool);
     r->set_io_service_pool(&client_io);

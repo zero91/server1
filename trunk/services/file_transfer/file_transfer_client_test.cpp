@@ -41,8 +41,7 @@ class FileTransferTest : public testing::Test {
     server_connection_->set_name("Server");
     server_.reset(new Server(2, FLAGS_num_threads));
     VLOG(2) << "New client connection";
-    client_connection_.reset(new ClientConnection(FLAGS_server, FLAGS_port));
-    client_connection_->set_name("Client");
+    client_connection_.reset(new ClientConnection("FileTransferMainClient", FLAGS_server, FLAGS_port));
     client_stub_.reset(new FileTransfer::FileTransferService::Stub(client_connection_.get()));
     file_transfer_service_.reset(new FileTransferServiceImpl(FLAGS_doc_root));
     server_connection_->RegisterService(file_transfer_service_.get());
@@ -120,6 +119,7 @@ TEST_F(FileTransferTest, Test1) {
   boost::shared_ptr<Notifier> ns(new Notifier);
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
+  VLOG(2) << "Start";
   CHECK(!client_connection_->IsConnected());
   CHECK(client_connection_->Connect());
   file_transfer_client_->PushChannel(client_connection_.get());
@@ -173,7 +173,8 @@ TEST_F(FileTransferTest, Test3) {
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(
+        "Test3." + boost::lexical_cast<string>(i), FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
     CHECK(r->Connect());
     connections.push_back(r);
@@ -206,7 +207,8 @@ TEST_F(FileTransferTest, Test4) {
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(
+        "Test4." + boost::lexical_cast<string>(i), FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
     CHECK(r->Connect());
     connections.push_back(r);
@@ -239,7 +241,8 @@ TEST_F(FileTransferTest, Test5) {
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(
+        "Test5." + boost::lexical_cast<string>(i), FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
     CHECK(r->Connect());
     connections.push_back(r);
@@ -290,10 +293,10 @@ TEST_F(FileTransferTest, Test6) {
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(
+        "Test6." + boost::lexical_cast<string>(i), FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
     CHECK(r->Connect());
-    r->set_name("Client." + boost::lexical_cast<string>(i));
     connections.push_back(r);
     file_transfer_client_->PushChannel(r.get());
   }
@@ -350,10 +353,10 @@ TEST_F(FileTransferTest, Test7) {
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_server, FLAGS_port));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(
+        "Test7." + boost::lexical_cast<string>(i), FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
     CHECK(r->Connect());
-    r->set_name("Client." + boost::lexical_cast<string>(i));
     connections.push_back(r);
     file_transfer_client_->PushChannel(r.get());
   }

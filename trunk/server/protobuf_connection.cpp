@@ -225,7 +225,6 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     }
     handler = it->second;
     response_handler_table_.erase(it);
-    VLOG(2) << name() << " Remove: " << it->first << " from response handler table, size: " << response_handler_table_.size();
   }
   handler(decoder, this);
 }

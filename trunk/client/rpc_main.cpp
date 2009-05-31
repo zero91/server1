@@ -22,7 +22,7 @@ DEFINE_string(port, "8888", "The server port");
 int main(int argc, char* argv[]) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  ClientConnection channel(FLAGS_server, FLAGS_port);
+  ClientConnection channel("RPCMain", FLAGS_server, FLAGS_port);
   Hello::EchoRequest request;
   Hello::EchoResponse response;
   request.set_question("hello");

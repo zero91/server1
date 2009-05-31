@@ -88,7 +88,8 @@ int main(int argc, char* argv[]) {
   IOServicePool client_io("PosixClientIO", 2);
   client_io.Start();
   for (int i = 0; i < FLAGS_num_connections; ++i) {
-    boost::shared_ptr<ClientConnection> r(new ClientConnection(FLAGS_address, FLAGS_port));
+    string name("PosixClient." + boost::lexical_cast<string>(i));
+    boost::shared_ptr<ClientConnection> r(new ClientConnection(name, FLAGS_address, FLAGS_port));
     r->RegisterService(echo_service.get());
     r->set_threadpool(&pool);
     r->set_io_service_pool(&client_io);

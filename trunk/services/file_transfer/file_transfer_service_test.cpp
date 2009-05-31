@@ -16,6 +16,7 @@
 #include "services/file_transfer/checkbook.hpp"
 #include "server/server.hpp"
 #include "client/client_connection.hpp"
+#include "net/mac_address.hpp"
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <sstream>
@@ -39,8 +40,7 @@ class FileTransferTest : public testing::Test {
     server_connection_->set_name("Server");
     server_.reset(new Server(2, FLAGS_num_threads));
     VLOG(2) << "New client connection";
-    client_connection_.reset(new ClientConnection(FLAGS_server, FLAGS_port));
-    client_connection_->set_name("Client");
+    client_connection_.reset(new ClientConnection("Main", FLAGS_server, FLAGS_port));
     client_stub_.reset(new FileTransfer::FileTransferService::Stub(client_connection_.get()));
     file_transfer_service_.reset(new FileTransferServiceImpl(FLAGS_doc_root));
     server_connection_->RegisterService(file_transfer_service_.get());

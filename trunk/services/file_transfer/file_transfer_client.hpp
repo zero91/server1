@@ -61,7 +61,7 @@ class FileTransferClient {
                      int thread_pool_size) :
     host_(host), port_(port), src_filename_(src_filename),
     dest_filename_(dest_filename), pool_("FileTransferClientThreadPool", thread_pool_size),
-    sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK) {
+    sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK), out_threadpool_(NULL) {
   }
   void Schedule();
   void SyncCheckBook();

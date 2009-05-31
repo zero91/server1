@@ -18,9 +18,7 @@ public:
   /// Construct the io_service pool.
   explicit IOServicePool(const string &name, size_t pool_size);
   ~IOServicePool() {
-    if (!work_.empty()) {
-      Stop();
-    }
+    CHECK(!IsRunning());
   }
 
   /// Run all io_service objects in the pool.
@@ -28,6 +26,10 @@ public:
 
   /// Stop all io_service objects in the pool.
   void Stop();
+
+  bool IsRunning() const {
+    return !work_.empty();
+  }
 
   /// Get an io_service to use.
   boost::asio::io_service &get_io_service();

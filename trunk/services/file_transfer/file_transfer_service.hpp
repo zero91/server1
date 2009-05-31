@@ -12,7 +12,7 @@ class TransferInfo;
 class Connection;
 class FileTransferServiceImpl : public FileTransfer::FileTransferService {
  public:
-  FileTransferServiceImpl(const string &doc_root) : doc_root_(doc_root), threadpool_("FileTransferServiceImplDownloadThreadPool", 2) {
+  FileTransferServiceImpl(const string &doc_root) : doc_root_(doc_root) {
   }
   void ReceiveCheckBook(google::protobuf::RpcController *controller,
                         const FileTransfer::CheckBook *request,
@@ -22,12 +22,8 @@ class FileTransferServiceImpl : public FileTransfer::FileTransferService {
                     const FileTransfer::SliceRequest *request,
                     FileTransfer::SliceResponse *response,
                     google::protobuf::Closure *done);
-  void Register(google::protobuf::RpcController *controller,
-                const FileTransfer::RegisterRequest *request,
-                FileTransfer::RegisterResponse *response,
-                google::protobuf::Closure *done);
+
  private:
-  void CloseChannel(FullDualChannel *channel);
   boost::shared_ptr<TransferInfo> GetTransferInfoFromConnection(
     const Connection *connection,
     const string &checkbook_dest_filename) const;
@@ -43,15 +39,8 @@ class FileTransferServiceImpl : public FileTransfer::FileTransferService {
   boost::mutex table_mutex_;
   typedef hash_map<string, boost::shared_ptr<TransferInfo> > CheckBookTable;
   typedef hash_map<const Connection*, CheckBookTable> ConnectionToCheckBookTable;
-  typedef hash_map<FullDualChannel*, hash_set<string> > ChannelTable;
-  typedef hash_map<string, pair<int, boost::shared_ptr<FileTransferClient> > >
-    TransferClientTable;
   ConnectionToCheckBookTable connection_table_;
   CheckBookTable check_table_;
-  TransferClientTable transfer_client_table_;
-  boost::mutex transfer_client_table_mutex_;
-  ChannelTable channel_table_;
   string doc_root_;
-  ThreadPool threadpool_;
 };
 #endif  // FILE_TRANSFER_SERVICE_HPP_

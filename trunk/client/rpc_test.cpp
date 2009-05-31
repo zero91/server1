@@ -47,6 +47,7 @@ class EchoTest : public testing::Test {
     server_.reset(new Server(FLAGS_num_threads, 1));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection(
+        "EchoTestMainClient",
         FLAGS_server, FLAGS_port));
     stub_.reset(new Hello::EchoService::Stub(client_connection_.get()));
     server_->Listen(FLAGS_server, FLAGS_port, server_connection_.get());
