@@ -36,10 +36,16 @@ class ClientConnection : public FullDualChannel {
   }
   void set_io_service_pool(IOServicePool *io_service_pool) {
     out_io_service_pool_ = io_service_pool;
+    if (io_service_pool_.IsRunning()) {
+      io_service_pool_.Stop();
+    }
   }
 
   void set_threadpool(ThreadPool *out_threadpool) {
     out_threadpool_ = out_threadpool;
+    if (threadpool_.IsRunning()) {
+      threadpool_.Stop();
+    }
   }
   bool IsConnected() {
     return proxy_.get() && proxy_->IsConnected();

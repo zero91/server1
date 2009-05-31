@@ -340,7 +340,6 @@ void Connection::Shutdown() {
   status_->set_closed();
   boost::system::error_code ignored_ec;
   socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored_ec);
-  socket_->cancel();
   socket_->get_io_service().post(boost::bind(&Connection::Cleanup, this));
 }
 
@@ -429,6 +428,10 @@ void ConnectionImpl<Decoder>::ScheduleRead() {
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleRead() {
   VLOG(2) << name() << " : " << " Internal ScheduleRead status: " << status_->status();
+  if (status_->closing()) {
+    VLOG(2) << "Call InternalScheduleRead but is closing";
+    return;
+  }
   if (status_->reading()) {
     VLOG(2) << name() << " : " << "Alreading in reading status";
     return;
@@ -463,6 +466,10 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleWrite() {
   VLOG(2) << name() << " : " << this << " InternalScheduleWrite" << " status: " << status_->status();
+  if (status_->closing()) {
+    VLOG(2) << "Call InternalScheduleWrite but is closing";
+    return;
+  }
   if (status_->writting()) {
     VLOG(2) << name() << " : " << "Alreading in writting status";
     return;

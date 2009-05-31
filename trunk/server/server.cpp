@@ -36,7 +36,7 @@ class AcceptorHandler {
         acceptor_->async_accept(**socket_pptr_, *this);
       }
     } else {
-      VLOG(2) << "HandleAccept error: " << e.message();
+      VLOG(1) << "HandleAccept error: " << e.message();
       server_->ReleaseAcceptor(host_);
     }
   }
@@ -62,9 +62,6 @@ Server::Server(int io_service_number, int worker_threads)
 }
 
 void Server::ReleaseAcceptor(const string &host) {
-  if (!is_running_) {
-    return;
-  }
   boost::mutex::scoped_lock locker(acceptor_table_mutex_);
   AcceptorTable::iterator it = acceptor_table_.find(host);
   if (it == acceptor_table_.end()) {

@@ -44,7 +44,9 @@ private:
       : acceptor(in_acceptor), socket_pptr(in_socket_pptr) {
     }
     void Release() {
+      acceptor->close();
       delete acceptor;
+      (*socket_pptr)->close();
       delete *socket_pptr;
       delete socket_pptr;
     }
