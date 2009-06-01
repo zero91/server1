@@ -9,6 +9,7 @@
 
 #ifndef CLOSURE_HPP_
 #define CLOSURE_HPP_
+#include <glog/logging.h>
 #include <boost/function.hpp>
 class OnceClosure : public google::protobuf::Closure {
 public:
@@ -49,7 +50,11 @@ class ScopedClosure {
   ScopedClosure(google::protobuf::Closure *closure) : closure_(closure) {
   }
   ~ScopedClosure() {
-    closure_->Run();
+    if (closure_) {
+      closure_->Run();
+    } else {
+      VLOG(2) << "Closure is NULL";
+    }
   }
  private:
   google::protobuf::Closure *closure_;

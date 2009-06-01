@@ -41,7 +41,7 @@ class FileTransferTest : public testing::Test {
   void SetUp() {
     server_connection_.reset(new ProtobufConnection);
     server_connection_->set_name("Server");
-    server_.reset(new Server(2, FLAGS_num_threads));
+    server_.reset(new Server(1, FLAGS_num_threads));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection("FileDownloadTestMainClient", FLAGS_server, FLAGS_port));
     client_stub_.reset(new FileTransfer::FileDownloadService::Stub(client_connection_.get()));

@@ -2,7 +2,6 @@
 #include "services/file_transfer/file_download_service.hpp"
 #include "services/file_transfer/file_transfer_client.hpp"
 #include "crypto/evp.hpp"
-
 class DownloadTasker {
  public:
   static boost::shared_ptr<DownloadTasker> Create(FileTransferClient *client) {
@@ -13,14 +12,13 @@ class DownloadTasker {
   void AddChannel(FullDualChannel *channel) {
     boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(channel));
     boost::mutex::scoped_lock locker(mutex_);
-    channels_.insert(proxy);
+    channels_.insert(make_pair(channel, proxy));
   }
   void RemoveChannel(FullDualChannel *channel) {
-    boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(channel));
     boost::mutex::scoped_lock locker(mutex_);
-    channels_.erase(proxy);
+    channels_.erase(channel);
   }
-  bool channel_size() const {
+  int channel_size() const {
     return channels_.size();
   }
   FileTransferClient *client() const {
@@ -30,18 +28,19 @@ class DownloadTasker {
     VLOG(2) << "~DownloadTasker";
   }
  private:
+  typedef hash_map<FullDualChannel*, boost::shared_ptr<FullDualChannelProxy> > ChannelTable;
   void DownloadFinished() {
     VLOG(2) << "DownloadFinished";
     boost::mutex::scoped_lock locker(mutex_);
     FileTransfer::DownloadCompleteRequest request;
     request.set_src_filename(client_->src_filename());
     request.set_local_filename(client_->dest_filename());
-    for (hash_set<boost::shared_ptr<FullDualChannelProxy> >::iterator it = channels_.begin();
+    for (ChannelTable::iterator it = channels_.begin();
          it != channels_.end(); ++it) {
       boost::shared_ptr<RpcController> controller(new RpcController);
       boost::shared_ptr<FileTransfer::DownloadCompleteResponse> response(
           new FileTransfer::DownloadCompleteResponse);
-      boost::shared_ptr<FullDualChannelProxy> proxy = *it;
+      boost::shared_ptr<FullDualChannelProxy> proxy = it->second;
       FileTransfer::FileDownloadNotifyService::Stub stub(proxy.get());
       stub.DownloadComplete(controller.get(), &request, response.get(),
                             NewClosure(boost::bind(&DownloadTasker::DownloadCompleteDone, this, controller, response)));
@@ -56,7 +55,7 @@ class DownloadTasker {
 
   DownloadTasker(FileTransferClient *client) : client_(client) {
   }
-  hash_set<boost::shared_ptr<FullDualChannelProxy> > channels_;
+  ChannelTable channels_;
   boost::mutex mutex_;
   scoped_ptr<FileTransferClient> client_;
 };
@@ -138,6 +137,7 @@ void FileDownloadServiceImpl::RegisterDownload(
     boost::mutex::scoped_lock locker(table_mutex_);
     DownloadTaskerTable::iterator it = tasker_table_.find(unique_identify);
     if (it == tasker_table_.end()) {
+      VLOG(2) << "Create transfer client for: " << host << " " << src_filename << " " << dest_filename << " " << unique_identify;
       FileTransferClient *client =
           FileTransferClient::Create(host,"", src_filename, dest_filename, 0);
       tasker = DownloadTasker::Create(client);
@@ -154,6 +154,7 @@ void FileDownloadServiceImpl::RegisterDownload(
           local_client->port().empty() &&
           local_client->src_filename() == src_filename &&
           local_client->dest_filename() == dest_filename) {
+        VLOG(2) << "Find transfer client for: " << host << " " << src_filename << " " << dest_filename << " " << unique_identify;
         tasker = local_tasker;
       } else {
         LOG(WARNING) << "Name conflict";
@@ -170,6 +171,7 @@ void FileDownloadServiceImpl::RegisterDownload(
   }
   // This channel is used to notify.
   tasker->AddChannel(channel);
+  VLOG(2) << "tasker channel size: " << tasker->channel_size();
   tasker->client()->PushChannel(channel);
   response->set_succeed(true);
 }
@@ -183,9 +185,12 @@ void FileDownloadNotifyImpl::DownloadComplete(google::protobuf::RpcController *c
   const string local_filename = request->local_filename();
   response->set_succeed(true);
   string key(src_filename + local_filename);
-  SignalTable::iterator it = signals_.find(key);
+  SignalTable::const_iterator it = signals_.find(key);
   if (it != signals_.end()) {
+    VLOG(2) << "Call notify for key: " << key;
     (*it->second)();
+  } else {
+    VLOG(2) << "Can't find notify for key: " << key;
   }
 }
 
@@ -199,5 +204,6 @@ FileDownloadNotifyImpl::NotifySignal *FileDownloadNotifyImpl::GetSignal(
     signals_.insert(make_pair(key, sig));
     it = signals_.find(key);
   }
+  VLOG(2) << "Get notify for key: " << key;
   return it->second.get();
 }

@@ -5,9 +5,9 @@ message MetaData {
     RESPONSE = 2;
   };
   required Type type = 1;
-  required int64 identify = 2;
+  required uint64 identify = 2;
   // the request should bring the response identify.
-  optional int64 response_identify = 3;
+  optional uint64 response_identify = 3;
 
   required bytes content = 4;
 };

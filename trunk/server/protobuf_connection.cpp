@@ -122,7 +122,7 @@ boost::tribool ProtobufDecoder::Consume(char input) {
           return false;
         }
         if (meta_.content().empty()) {
-          LOG(WARNING) << "Meta without content: " << meta_.DebugString();
+          LOG(WARNING) << "Meta without content: ";
           return false;
         }
         state_ = End;
@@ -147,7 +147,7 @@ static void CallServiceMethodDone(
   response_meta.set_type(ProtobufLineFormat::MetaData::RESPONSE);
   response_meta.set_identify(request_meta.response_identify());
   CHECK(response->AppendToString(response_meta.mutable_content()))
-    << "Fail to serialize response for requst: " << request_meta.DebugString();
+    << "Fail to serialize response for requst: ";
   connection->PushData(EncodeMessage(&response_meta));
   connection->ScheduleWrite();
 }
@@ -167,7 +167,7 @@ static void HandleService(
   if (!request->ParseFromArray(
       content.c_str(),
       content.size())) {
-    LOG(WARNING) << meta.DebugString() << " invalid format";
+    LOG(WARNING) << connection->name() << " : " << "HandleService but invalid format";
     return;
   }
   boost::shared_ptr<google::protobuf::Message> response(response_prototype->New());
@@ -207,6 +207,7 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
 }
 
 void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
+  VLOG(2) << Name() << ".ProtobufConnection.Handle";
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
   HandlerTable::value_type::second_type handler;
   HandlerTable::iterator it = handler_table_->find(meta.identify());
@@ -220,7 +221,7 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     }
     it = response_handler_table_.find(meta.identify());
     if (it == response_handler_table_.end()) {
-      VLOG(2) << name() << " : " << "Unknown request" << meta.DebugString();
+      VLOG(2) << Name() << " : " << "Unknown request";
       return;
     }
     handler = it->second;
@@ -244,29 +245,26 @@ static void CallMethodCallback(
     google::protobuf::RpcController *controller,
     google::protobuf::Message *response,
     google::protobuf::Closure *done) {
+  ScopedClosure run(done);
   RpcController *rpc_controller = dynamic_cast<RpcController*>(
       controller);
   if (decoder.get() == NULL) {
     VLOG(2) << "NULL Decoder, may call from destructor";
     if (rpc_controller) rpc_controller->Notify();
-    if (done) done->Run();
     return;
   }
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  VLOG(3) << "Handle response message "
+  VLOG(2) << connection->name() << " : " << "Handle response message "
           << response->GetDescriptor()->full_name()
-          << " response: " << meta.DebugString();
+          << " identify: " << meta.identify();
   if (!response->ParseFromArray(meta.content().c_str(),
                                 meta.content().size())) {
-    LOG(WARNING) << "Fail to parse the response :"
-                 << meta.DebugString();
-    controller->SetFailed("Fail to parse the response:" + meta.DebugString());
+    LOG(WARNING) << connection->name() << " : " << "Fail to parse the response :";
+    controller->SetFailed("Fail to parse the response:");
     if (rpc_controller) rpc_controller->Notify();
-    if (done) done->Run();
     return;
   }
   if (rpc_controller) rpc_controller->Notify();
-  if (done) done->Run();
 }
 
 void ProtobufConnection::Timeout(const boost::system::error_code& e,
@@ -274,6 +272,7 @@ void ProtobufConnection::Timeout(const boost::system::error_code& e,
                                  google::protobuf::RpcController *controller,
                                  google::protobuf::Closure *done,
                                  boost::shared_ptr<boost::asio::deadline_timer> timer) {
+  ScopedClosure run(done);
   LOG(INFO ) << "Timeout";
   if (e) {
     LOG(WARNING) << "Timeout error: " << e.message();
@@ -298,7 +297,6 @@ void ProtobufConnection::Timeout(const boost::system::error_code& e,
   }
   controller->SetFailed("Timeout");
   if (rpc_controller) rpc_controller->Notify();
-  if (done) done->Run();
 }
 
 void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
@@ -306,17 +304,15 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
                   const google::protobuf::Message *request,
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done) {
-  VLOG(2) << name() << " : " << "Call Method connection";
+  VLOG(2) << name() << " : " << "CallMethod";
   uint64 request_identify = hash8(method->full_name());
   uint64 response_identify = hash8(response->GetDescriptor()->full_name());
   ProtobufLineFormat::MetaData meta;
   {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
     if (closed_) {
+      ScopedClosure run(done);
       LOG(WARNING) << "Already closed";
-      if (done) {
-        done->Run();
-      }
       return;
     }
     HandlerTable::const_iterator it = response_handler_table_.find(response_identify);

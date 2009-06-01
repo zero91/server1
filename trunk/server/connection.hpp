@@ -108,12 +108,12 @@ class ConnectionStatus {
 
   class ScopedExit {
    public:
-    ScopedExit(const char *name, Connection *connection, boost::shared_ptr<ConnectionStatus> status)
+    ScopedExit(const string name, Connection *connection, boost::shared_ptr<ConnectionStatus> status)
       : name_(name), connection_(connection), status_(status) {
     }
     inline ~ScopedExit();
    private:
-    const char *name_;
+    string name_;
     Connection *connection_;
     boost::shared_ptr<ConnectionStatus> status_;
   };
@@ -203,64 +203,66 @@ class Connection {
 
 class ConnectionReadHandler {
  public:
-  ConnectionReadHandler(Connection* connection, boost::shared_ptr<ConnectionStatus> status)
-    : connection_(connection), status_(status) {
+  ConnectionReadHandler(const string &name, Connection* connection, boost::shared_ptr<ConnectionStatus> status)
+    : name_(name), connection_(connection), status_(status) {
   }
   void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
-    VLOG(2) << "ConnectionReadHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
-    ConnectionStatus::ScopedExit exiter("ConnectionReadHandler", connection_, status_);
+    VLOG(2) << name_ << " : " << "ConnectionReadHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
     status_->DecreaseReaderCounter();
     if (!e) {
       if (!status_->closed()) {
         connection_->HandleRead(e, bytes_transferred);
       } else {
         status_->clear_reading();
-        VLOG(2) << "non error but connection is closed";
+        VLOG(2) << name_ << " : " << "non error but connection is closed";
       }
     } else {
+      ConnectionStatus::ScopedExit exiter(name_ + ".ConnectionReadHandler", connection_, status_);
       if (!status_->closed()) {
-        VLOG(2) << "error then closing " << connection_->name();
+        VLOG(2) << name_ << " : " << "error then closing " << connection_->name();
         status_->clear_reading();
         Connection::InternalClose(status_, connection_);
       } else {
         status_->clear_reading();
-        VLOG(2) << "error but connection is closed";
+        VLOG(2) << name_ << " : " << "error but connection is closed";
       }
     }
   }
  private:
+  string name_;
   Connection* connection_;
   boost::shared_ptr<ConnectionStatus> status_;
 };
 
 class ConnectionWriteHandler {
  public:
-  ConnectionWriteHandler(Connection* connection, boost::shared_ptr<ConnectionStatus> status)
-    : connection_(connection), status_(status) {
+  ConnectionWriteHandler(const string &name, Connection* connection, boost::shared_ptr<ConnectionStatus> status)
+    : name_(name), connection_(connection), status_(status) {
   }
   void operator() (const boost::system::error_code &e, size_t byte_transferred) {
-    VLOG(2) << "ConnectionWriteHandler e: " << e.message() << " bytes: " << byte_transferred;
-    ConnectionStatus::ScopedExit exiter("ConnectionWriteHandler", connection_, status_);
+    VLOG(2) << name_ << " : " << "ConnectionWriteHandler e: " << e.message() << " bytes: " << byte_transferred;
     status_->DecreaseWritterCounter();
     if (!e) {
       if (!status_->closed()) {
         connection_->HandleWrite(e, byte_transferred);
       } else {
         status_->clear_writting();
-        VLOG(2) << "non error but connection is already closed";
+        VLOG(2) << name_ << " : " << "non error but connection is already closed";
       }
     } else {
+      ConnectionStatus::ScopedExit exiter(name_ + ".ConnectionWriteHandler", connection_, status_);
       if (!status_->closed()) {
-        VLOG(2) << "error then closing " << connection_->name();
+        VLOG(2) << name_ << " : " << "error then closing " << connection_->name();
         status_->clear_writting();
         Connection::InternalClose(status_, connection_);
       } else {
         status_->clear_reading();
-        VLOG(2) << "error but connection is closed";
+        VLOG(2) << name_ << " : " << "error but connection is closed";
       }
     }
   }
  private:
+  string name_;
   Connection* connection_;
   boost::shared_ptr<ConnectionStatus> status_;
 };
@@ -333,6 +335,8 @@ void Connection::InternalClose(boost::shared_ptr<ConnectionStatus> status, Conne
   VLOG(2) << connection->name() << " : " << "InternalClose";
   status->set_closing();
   status->set_shutdown();
+  boost::system::error_code ignored_ec;
+  connection->socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
 }
 
 void Connection::Shutdown() {
@@ -341,15 +345,12 @@ void Connection::Shutdown() {
     return;
   }
   status_->set_closed();
-  boost::system::error_code ignored_ec;
-  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
   socket_->get_io_service().post(boost::bind(&Connection::Cleanup, this));
 }
 
 void Connection::Cleanup() {
   VLOG(2) << name() << " Connection::Cleanup";
   socket_->close();
-  socket_.reset();
   VLOG(2) << name() << " Cleanup, num_slots: " << close_signal_.num_slots();
   close_signal_();
 }
@@ -446,7 +447,7 @@ void ConnectionImpl<Decoder>::InternalScheduleRead() {
   status_->set_reading();
   if (socket_->is_open()) {
     status_->IncreaseReaderCounter();
-    socket_->async_read_some(boost::asio::buffer(buffer_), ConnectionReadHandler(this, status_));
+    socket_->async_read_some(boost::asio::buffer(buffer_), ConnectionReadHandler(name() + ".InternalScheduleRead", this, status_));
   }
 }
 
@@ -470,7 +471,7 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleWrite() {
-  VLOG(2) << name() << " : " << this << " InternalScheduleWrite" << " status: " << status_->status();
+  VLOG(2) << name() << " : " << " InternalScheduleWrite" << " status: " << status_->status();
   if (status_->closing()) {
     VLOG(2) << "Call InternalScheduleWrite but is closing";
     return;
@@ -497,13 +498,13 @@ void ConnectionImpl<Decoder>::InternalScheduleWrite() {
   VLOG(2) << name() << " : " << "Internal Schedule Write socket open:" << socket_->is_open();
   if (outcoming()->empty()) {
     status_->clear_writting();
-    VLOG(2) << "No outcoming";
+    VLOG(2) << name() << " : " << "No outcoming";
     return;
   }
 
   if (socket_->is_open()) {
     status_->IncreaseWritterCounter();
-    socket_->async_write_some(*outcoming(), ConnectionWriteHandler(this, status_));
+    socket_->async_write_some(*outcoming(), ConnectionWriteHandler(name() + ".InternalScheduleWrite", this, status_));
   }
 }
 
@@ -516,7 +517,7 @@ void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e, si
     if (!outcoming()->empty()) {
       VLOG(2) << "outcoming is not empty";
       status_->IncreaseWritterCounter();
-      socket_->async_write_some(*outcoming(), ConnectionWriteHandler(this, status_));
+      socket_->async_write_some(*outcoming(), ConnectionWriteHandler(name() + ".HandleWrite", this, status_));
     } else {
       VLOG(2) << name() << " outcoming is empty";
       outcoming()->clear();
