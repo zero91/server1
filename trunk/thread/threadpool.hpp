@@ -52,7 +52,7 @@ class ThreadPool : public boost::noncopyable, public Executor {
       pcqueue_.Push(boost::function0<void>());
     }
     threads_->join_all();
-    VLOG(1) << "Stopped";
+    VLOG(1) << name() << " Stopped";
     threads_.reset();
   }
   void PushTask(const boost::function0<void> &t) {

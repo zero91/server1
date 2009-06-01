@@ -362,6 +362,7 @@ TEST_F(FileTransferTest, Test7) {
   }
   for (int i = 0; i < connections.size(); ++i) {
     if (i % 2 == 1) {
+      VLOG(2) << "Disconnect: " << i << connections[i]->Name();
       connections[i]->Disconnect();
       connections.erase(connections.begin() + i);
     }
@@ -397,6 +398,7 @@ TEST_F(FileTransferTest, Test7) {
   dest_path /= dest_filename;
   ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
   for (int i = 0; i < connections.size(); ++i) {
+    VLOG(2) << "Disconnect: " << i << connections[i]->Name();
     connections[i]->Disconnect();
   }
   file_transfer_client2->Stop();

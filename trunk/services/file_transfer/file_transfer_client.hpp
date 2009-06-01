@@ -72,7 +72,8 @@ class FileTransferClient {
   void SyncSliceDone(
       boost::shared_ptr<TransferTask> tasker,
       bool succeed, boost::shared_ptr<SliceStatus> status);
-  void ChannelClosed(boost::shared_ptr<TransferTask> tasker);
+  void ChannelClosed(boost::shared_ptr<TransferTask> tasker,
+                     boost::shared_ptr<SliceStatus> status);
   static const int kSyncCheckBookRetry = 3;
   typedef deque<boost::shared_ptr<TransferTask> > TransferTaskQueue;
   typedef list<boost::shared_ptr<SliceStatus> > SliceStatusLink;
@@ -80,6 +81,7 @@ class FileTransferClient {
   ThreadPool pool_;
   boost::function0<void> finish_handler_;
   PCQueue<boost::shared_ptr<TransferTask> > transfer_task_queue_;
+  PCQueue<boost::shared_ptr<SliceStatus> > slice_status_queue_;
   boost::mutex transfer_task_set_mutex_;
   hash_set<boost::shared_ptr<TransferTask> > transfer_task_set_;
   scoped_ptr<CheckBook> checkbook_;

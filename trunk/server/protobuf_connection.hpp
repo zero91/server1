@@ -73,6 +73,7 @@ class FullDualChannel : virtual public RpcController,
   virtual CloseSignal *close_signal() = 0;
   virtual bool IsConnected() = 0;
   virtual void Disconnect() = 0;
+  virtual const string Name() = 0;
 };
 
 class ProtobufDecoder {
@@ -141,6 +142,9 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
   }
   virtual void Disconnect() {
     return Connection::Close();
+  }
+  virtual const string Name() {
+    return name();
   }
 
   ~ProtobufConnection();

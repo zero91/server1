@@ -54,6 +54,12 @@ class FullDualChannelProxy : virtual public FullDualChannel, public boost::enabl
     mutex_.unlock_shared();
     return ret;
   }
+  virtual const string Name() {
+    mutex_.lock_shared();
+    const string name = channel_ != NULL ? channel_->Name() : "NoConnection";
+    mutex_.unlock_shared();
+    return name;
+  }
  private:
   void CloseChannel() {
     mutex_.lock();

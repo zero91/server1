@@ -19,6 +19,7 @@ message RegisterRequest {
   required string src_filename = 1;
   required string local_filename = 2;
   required string local_mac_address = 3;
+  optional string peer_name = 4;
 };
 
 message DownloadCompleteRequest {

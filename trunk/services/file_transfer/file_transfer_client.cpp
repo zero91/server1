@@ -47,8 +47,8 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
       boost::shared_ptr<FullDualChannelProxy> proxy, int id);
   void SyncSliceDone();
   void ChannelClosed() {
-    VLOG(2) << "ChannelClosed";
-    file_transfer_->ChannelClosed(shared_from_this());
+    VLOG(2) << "ChannelClosed channel: " << proxy_->Name() << " tasker:" << id_ << " slice: " << (status_.get() ? status_->index() : -1);
+    file_transfer_->ChannelClosed(shared_from_this(), status_);
   }
   static const int kRetry = 2;
   boost::shared_ptr<FullDualChannelProxy> proxy_;
@@ -62,10 +62,22 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   int id_;
 };
 
-void FileTransferClient::ChannelClosed(boost::shared_ptr<TransferTask> tasker) {
+void FileTransferClient::ChannelClosed(
+    boost::shared_ptr<TransferTask> tasker,
+    boost::shared_ptr<SliceStatus> status) {
   VLOG(2) << "FileTransferClient::ChannelClosed";
-  boost::mutex::scoped_lock locker(transfer_task_set_mutex_);
-  transfer_task_set_.erase(tasker);
+  {
+    boost::mutex::scoped_lock locker(transfer_task_set_mutex_);
+    transfer_task_set_.erase(tasker);
+  }
+  {
+    boost::mutex::scoped_lock locker(transfering_slice_mutex_);
+    if (status.get() != NULL && status->status() != SliceStatus::DONE) {
+      VLOG(1) << "Reset slice: " << status->index() << " to idle";
+      status->set_status(SliceStatus::IDLE);
+    }
+  }
+  GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
 }
 
 void FileTransferClient::PushChannel(FullDualChannel *channel) {
@@ -256,7 +268,7 @@ void FileTransferClient::ScheduleSlice() {
     LOG(WARNING) << "Get null tasker, return";
     return;
   }
-  VLOG(2) << "Get tasker " << tasker->id();
+  VLOG(2) << "Get tasker " << tasker->id() << " tasker queue size: " << transfer_task_queue_.size();
   boost::shared_ptr<SliceStatus> slice;
   bool in_transfering = false;
   bool call_finish_handler = false;
@@ -306,17 +318,15 @@ void FileTransferClient::ScheduleSlice() {
     return;
   }
   if (slice.get() == NULL) {
-    VLOG(2) << "Get null slice, retry";
+    VLOG(2) << "Get null slice, push back the tasker";
     boost::this_thread::yield();
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
-      GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
     }
     return;
   }
-  if (tasker->IsConnected()) {
-    SyncSlice(slice, tasker);
-  }
+  VLOG(2) << "Transfer, tasker: " << tasker->id() << " slice: " << slice->index();
+  SyncSlice(slice, tasker);
 }
 
 void FileTransferClient::SyncSlice(
@@ -336,8 +346,7 @@ void FileTransferClient::SyncSlice(
 }
 
 void TransferTask::SyncSlice() {
-  status_->set_status(SliceStatus::TRANSFERING);
-  VLOG(1) << "SyncSlice: " << status_->index();
+  VLOG(1) << "SyncSlice: Channel: " << proxy_->Name() << " tasker: " << id() << " slice: " << status_->index();
   stub_.ReceiveSlice(&controller_,
                      &slice_request_,
                      &slice_response_,
@@ -358,22 +367,26 @@ void TransferTask::SyncSliceDone() {
   } else {
     ret = true;
   }
-  VLOG(2) << "SyncSlice: " << status_->index() << " Done";
+  VLOG(2) << "SyncSliceDone: " << status_->index() << " " << ret;
   file_transfer_->SyncSliceDone(shared_from_this(), ret, status_);
 }
 
 void FileTransferClient::SyncSliceDone(
     boost::shared_ptr<TransferTask> tasker, bool succeed, boost::shared_ptr<SliceStatus> status) {
-  VLOG(2) << "SyncSlice Done";
+  VLOG(2) << "SyncSlice: " << status->index() << " result: " << succeed;
   if (tasker->IsConnected()) {
     transfer_task_queue_.Push(tasker);
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
   }
-  if (succeed) {
-    status->set_status(SliceStatus::DONE);
-  } else {
-    status->set_status(SliceStatus::IDLE);
+  {
+    boost::mutex::scoped_lock locker(transfering_slice_mutex_);
+    if (succeed) {
+      status->set_status(SliceStatus::DONE);
+    } else {
+      status->set_status(SliceStatus::IDLE);
+    }
   }
+  VLOG(2) << "SyncSlice: " << status->index() << " result: " << succeed << " Push Task";
+  GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
 }
 
 TransferTask::TransferTask(

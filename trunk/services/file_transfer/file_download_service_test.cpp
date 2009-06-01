@@ -109,6 +109,7 @@ class FileTransferTest : public testing::Test {
   boost::scoped_ptr<FileDownloadServiceImpl> file_download_service_;
 };
 
+/*
 TEST_F(FileTransferTest, Test1) {
   const int kFileSize = CheckBook::GetSliceSize() + 1;
   string content;
@@ -143,6 +144,7 @@ TEST_F(FileTransferTest, Test1) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
+*/
 
 TEST_F(FileTransferTest, Test2) {
   const int kConnectionNumber = FLAGS_num_connections;
@@ -175,6 +177,7 @@ TEST_F(FileTransferTest, Test2) {
     r->RegisterService(local_file_notify.get());
     connections.push_back(r);
     FileTransfer::FileDownloadService::Stub stub(r.get());
+    request.set_peer_name(r->Name());
     stub.RegisterDownload(
         &controller,
         &request, &response, NULL);
@@ -183,6 +186,7 @@ TEST_F(FileTransferTest, Test2) {
   }
   for (int i = 0; i < connections.size(); ++i) {
     if (i % 2 == 1) {
+      VLOG(2) << "Disconnect: " << i << connections[i]->Name();
       connections[i]->Disconnect();
       connections.erase(connections.begin() + i);
     }
@@ -195,6 +199,7 @@ TEST_F(FileTransferTest, Test2) {
   }
   notifier->Wait();
   for (int i = 0; i < connections.size(); ++i) {
+    VLOG(2) << "Disconnect: " << i << connections[i]->Name();
     connections[i]->Disconnect();
   }
   boost::filesystem::path dest_path(FLAGS_local_root);

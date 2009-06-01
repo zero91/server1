@@ -18,6 +18,7 @@ class FileDownloadServiceImpl : public FileTransfer::FileDownloadService {
                         const FileTransfer::RegisterRequest *request,
                         FileTransfer::RegisterResponse *response,
                         google::protobuf::Closure *done);
+  ~FileDownloadServiceImpl();
  private:
   void CloseChannel(FullDualChannel *channel);
   typedef hash_map<FullDualChannel*, hash_set<string> > ChannelTable;

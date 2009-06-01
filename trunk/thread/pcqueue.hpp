@@ -36,6 +36,9 @@ class PCQueue : public boost::noncopyable, public boost::enable_shared_from_this
     // queue_not_empty_.notify_one();
     queue_not_empty_.notify_all();
   }
+  int size() const {
+    return queue_.size();
+  }
 
  private:
   deque<Type> queue_;

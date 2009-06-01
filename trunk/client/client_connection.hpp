@@ -18,7 +18,7 @@ class ClientConnection : public FullDualChannel {
     : io_service_pool_(name + ".IOService", 1),
       threadpool_(name + ".ThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
       VLOG(2) << "Constructor client connection";
-    connection_template_.set_name(server + "::" + port + "::Client");
+    connection_template_.set_name(server + "::" + port + "::" + name);
   }
   virtual bool RegisterService(google::protobuf::Service *service) {
     return connection_template_.RegisterService(service);
@@ -31,9 +31,10 @@ class ClientConnection : public FullDualChannel {
     proxy_->CallMethod(method, controller, request, response, done);
   }
 
-  const string name() {
-    return connection_template_.name();
+  const string Name() {
+    return proxy_.get() ? proxy_->Name() : "ClientHaveNoProxy.NoName";
   }
+
   void set_io_service_pool(IOServicePool *io_service_pool) {
     out_io_service_pool_ = io_service_pool;
     if (io_service_pool_.IsRunning()) {
@@ -56,10 +57,10 @@ class ClientConnection : public FullDualChannel {
   bool Connect();
   void Disconnect() {
     if (proxy_.get() && proxy_->IsConnected()) {
-      VLOG(2) << "Disconnect: " << name();
+      VLOG(2) << "Disconnect: " << Name();
       proxy_->Disconnect();
       notifier_->Wait();
-      VLOG(2) << "Disconnect after notifer wait: " << name();
+      VLOG(2) << "Disconnect after notifer wait: " << Name();
     }
     if (out_threadpool_ == NULL) {
       threadpool_.Stop();

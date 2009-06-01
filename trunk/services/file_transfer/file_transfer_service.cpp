@@ -120,6 +120,7 @@ bool TransferInfo::Save(const string &doc_root) {
     LOG(WARNING) << "Fail to open file " << dest_filename << " error: " << strerror(errno);
     return false;
   }
+  VLOG(1) << "Save file to: " << dest_filename;
   for (int i = 0; i < slice_size; ++i) {
     const FileTransfer::Slice &slice = checkbook_->slice(i);
     boost::filesystem::path slice_name(doc_root);
@@ -281,7 +282,8 @@ void FileTransferServiceImpl::ReceiveSlice(
     FileTransfer::SliceResponse *response,
     google::protobuf::Closure *done) {
   ScopedClosure run(done);
-  VLOG(2) << "Receive slice: " << request->slice().index();
+  FullDualChannel *channel = dynamic_cast<FullDualChannel*>(controller);
+  VLOG(2) << "Receive slice: " << request->slice().index() << " channel: " << channel->Name();
   Connection *connection = dynamic_cast<Connection*>(controller);
   if (connection == NULL) {
     LOG(WARNING) << "fail to convert controller to connection!";
@@ -303,15 +305,14 @@ void FileTransferServiceImpl::ReceiveSlice(
     return;
   }
 
-  VLOG(1) << "Receive slice: " << request->slice().index();
   transfer_info->set_slice_finished(request->slice().index());
   bool finished = transfer_info->Save(doc_root_);
   if (finished) {
     VLOG(1) << "Transfer finished";
     response->set_finished(true);
   }
-
   response->set_succeed(true);
+  VLOG(2) << "Receive slice: " << request->slice().index() << " succeed channel: " << channel->Name();
 }
 
 void FileTransferServiceImpl::CloseConnection(

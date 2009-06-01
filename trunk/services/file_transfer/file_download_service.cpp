@@ -31,6 +31,7 @@ class DownloadTasker {
   }
  private:
   void DownloadFinished() {
+    VLOG(2) << "DownloadFinished";
     boost::mutex::scoped_lock locker(mutex_);
     FileTransfer::DownloadCompleteRequest request;
     request.set_src_filename(client_->src_filename());
@@ -77,6 +78,7 @@ void FileDownloadServiceImpl::CloseChannel(
     boost::mutex::scoped_lock locker(table_mutex_);
     ChannelTable::iterator it = channel_table_.find(channel);
     if (it == channel_table_.end()) {
+      VLOG(2) << "Can't find channel: " << channel;
       return;
     }
     hash_set<string> *files = &it->second;
@@ -90,6 +92,8 @@ void FileDownloadServiceImpl::CloseChannel(
           jt->second->client()->Stop();
           tasker_table_.erase(jt);
           VLOG(0) << "Client arrive zero channel, remove from tasker table";
+        } else {
+          VLOG(2) << "Client channel size: " << jt->second->channel_size();
         }
       }
     }
@@ -99,6 +103,14 @@ void FileDownloadServiceImpl::CloseChannel(
     }
   }
   if (is_idle) {
+    VLOG(1) << "Is Idle, remove channel";
+    threadpool_.Stop();
+  }
+}
+
+FileDownloadServiceImpl::~FileDownloadServiceImpl() {
+  if (threadpool_.IsRunning()) {
+    VLOG(1) << "Stop thread pool in FileDownloadServiceImpl";
     threadpool_.Stop();
   }
 }
@@ -108,9 +120,9 @@ void FileDownloadServiceImpl::RegisterDownload(
     const FileTransfer::RegisterRequest *request,
     FileTransfer::RegisterResponse *response,
     google::protobuf::Closure *done) {
-  VLOG(2) << "RegisterDownload";
   ScopedClosure run(done);
   FullDualChannel *channel = dynamic_cast<FullDualChannel*>(controller);
+  VLOG(2) << "RegisterDownload, channel: " << channel->Name() << " peer: " << request->peer_name();;
   if (channel == NULL) {
     response->set_succeed(false);
     LOG(WARNING) << "Can't convert controller to full dual channel.";
