@@ -182,7 +182,6 @@ TEST_F(FileTransferTest, Test2) {
         &controller,
         &request, &response, NULL);
     controller.Wait();
-    ASSERT_TRUE(response.succeed());
   }
   for (int i = 0; i < connections.size(); ++i) {
     if (i % 2 == 1) {
@@ -194,9 +193,6 @@ TEST_F(FileTransferTest, Test2) {
   ASSERT_LT(connections.size(), kConnectionNumber);
   ASSERT_GT(connections.size(), 0);
   VLOG(2) << "connections size: " << connections.size();
-  for (int i = 0; i < connections.size(); ++i) {
-    ASSERT_TRUE(connections[i]->IsConnected());
-  }
   notifier->Wait();
   for (int i = 0; i < connections.size(); ++i) {
     VLOG(2) << "Disconnect: " << i << connections[i]->Name();

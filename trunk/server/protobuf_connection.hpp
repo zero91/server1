@@ -126,13 +126,8 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
    typedef hash_map<uint64, boost::function2<void, boost::shared_ptr<const ProtobufDecoder>,
           ProtobufConnection*> > HandlerTable;
  public:
-  explicit ProtobufConnection(int timeout) : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(timeout) {
-    VLOG(2) << "New protobuf connection" << this << " timeout: " << timeout;
-  }
-
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(0) {
+      handler_table_(new HandlerTable) {
     VLOG(2) << "New protobuf connection" << this;
   }
   CloseSignal *close_signal() {
@@ -163,15 +158,8 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
  private:
   void ReleaseResponseTable();
   virtual void Cleanup();
-  void Timeout(const boost::system::error_code& e,
-               uint64 resonse_identify,
-               google::protobuf::RpcController *controller,
-               google::protobuf::Closure *done,
-               boost::shared_ptr<boost::asio::deadline_timer> timer);
-
   virtual void Handle(boost::shared_ptr<const ProtobufDecoder> decoder);
   boost::shared_ptr<HandlerTable> handler_table_;
-  int timeout_ms_;
   // The response handler table is per connection.
   HandlerTable response_handler_table_;
   boost::mutex response_handler_table_mutex_;

@@ -220,8 +220,9 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
 
 ProtobufConnection* ProtobufConnection::Clone() {
   static int i = 0;
-  ProtobufConnection* connection = new ProtobufConnection(this->timeout_ms_);
+  ProtobufConnection* connection = new ProtobufConnection();
   connection->handler_table_ = this->handler_table_;
+  connection->timeout_ = this->timeout_;
   connection->set_name(this->name() + boost::lexical_cast<string>(i++));
   VLOG(2) << "Clone protobufconnection: " << name() << " -> " << connection->name();
   return connection;
@@ -252,34 +253,6 @@ static void CallMethodCallback(
     if (rpc_controller) rpc_controller->Notify();
     return;
   }
-  if (rpc_controller) rpc_controller->Notify();
-}
-
-void ProtobufConnection::Timeout(const boost::system::error_code& e,
-                                 uint64 response_identify,
-                                 google::protobuf::RpcController *controller,
-                                 google::protobuf::Closure *done,
-                                 boost::shared_ptr<boost::asio::deadline_timer> timer) {
-  ScopedClosure run(done);
-  LOG(INFO ) << "Timeout";
-  if (e) {
-    LOG(WARNING) << "Timeout error: " << e.message();
-    return;
-  }
-  RpcController *rpc_controller = dynamic_cast<RpcController*>(
-      controller);
-  {
-    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    HandlerTable::iterator it = response_handler_table_.find(response_identify);
-    if (it == response_handler_table_.end()) {
-      VLOG(2) << name() << " : "
-              << response_identify << " timer expire";
-      return;
-    }
-    VLOG(2) << name() << " : " << response_identify << " timeout";
-    response_handler_table_.erase(it);
-  }
-  controller->SetFailed("Timeout");
   if (rpc_controller) rpc_controller->Notify();
 }
 
@@ -318,12 +291,4 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
   VLOG(2) << Name() << " PushData, " << " incoming: " << incoming()->size();
   ScheduleWrite();
   ScheduleRead();
-  if (timeout_ms_ > 0) {
-    boost::shared_ptr<boost::asio::deadline_timer> timer(
-        new boost::asio::deadline_timer(socket_->get_io_service()));
-    timer->expires_from_now(boost::posix_time::milliseconds(timeout_ms_));
-    const boost::function1<void, const boost::system::error_code&> h =
-      boost::bind(&ProtobufConnection::Timeout, this, _1, response_identify, controller, done, timer);
-    timer->async_wait(h);
-  }
 }
