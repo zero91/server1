@@ -26,6 +26,10 @@ class DownloadTasker {
   }
   ~DownloadTasker() {
     VLOG(2) << "~DownloadTasker";
+    channels_.clear();
+    if (client_.get()) {
+      client_->Stop();
+    }
   }
  private:
   typedef hash_map<FullDualChannel*, boost::shared_ptr<FullDualChannelProxy> > ChannelTable;

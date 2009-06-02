@@ -65,7 +65,7 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
 void FileTransferClient::ChannelClosed(
     boost::shared_ptr<TransferTask> tasker,
     boost::shared_ptr<SliceStatus> status) {
-  VLOG(2) << "FileTransferClient::ChannelClosed";
+  VLOG(2) << "FileTransferClient::ChannelClosed, tasker: " << tasker->id();
   {
     boost::mutex::scoped_lock locker(transfer_task_set_mutex_);
     transfer_task_set_.erase(tasker);
@@ -216,6 +216,8 @@ void FileTransferClient::SyncCheckBook() {
 bool TransferTask::SyncCheckBook(
     const FileTransfer::CheckBook *checkbook) {
   VLOG(1) << "SyncCheckBook";
+  checkbook_response_.Clear();
+  controller_.Reset();
   stub_.ReceiveCheckBook(&controller_,
                          checkbook,
                          &checkbook_response_,
@@ -347,6 +349,8 @@ void FileTransferClient::SyncSlice(
 
 void TransferTask::SyncSlice() {
   VLOG(1) << "SyncSlice: Channel: " << proxy_->Name() << " tasker: " << id() << " slice: " << status_->index();
+  controller_.Reset();
+  slice_response_.Clear();
   stub_.ReceiveSlice(&controller_,
                      &slice_request_,
                      &slice_response_,
@@ -367,7 +371,7 @@ void TransferTask::SyncSliceDone() {
   } else {
     ret = true;
   }
-  VLOG(2) << "SyncSliceDone: " << status_->index() << " " << ret;
+  VLOG(2) << "SyncSliceDone: " << id() << " " << status_->index() << " " << ret;
   file_transfer_->SyncSliceDone(shared_from_this(), ret, status_);
 }
 

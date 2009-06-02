@@ -37,3 +37,11 @@ Test(file_transfer_env, 'checkbook')
 Test(file_transfer_env, 'file_transfer_service')
 Test(file_transfer_env, 'file_transfer_client')
 Test(file_transfer_env, 'file_download_service')
+
+file_transfer_env.Program(
+  target = 'file_download_server',
+  source = ['file_download_service_main.cpp'])
+
+file_transfer_env.Program(
+  target = 'file_download_client',
+  source = ['file_download_client_main.cpp'])

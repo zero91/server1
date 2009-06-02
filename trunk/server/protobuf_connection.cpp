@@ -27,41 +27,31 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
 };
 
 ProtobufConnection::~ProtobufConnection() {
-  VLOG(2) << name() << " : " << "Distroy protobuf connection" << this;
+  VLOG(2) << name() << " : " << "Distroy protobuf connection";
+  ReleaseResponseTable();
+}
+
+void ProtobufConnection::ReleaseResponseTable() {
   boost::shared_ptr<ProtobufDecoder> decoder;
-  int i = 0;
-  for (HandlerTable::iterator it = response_handler_table_.begin();
-       it != response_handler_table_.end();) {
-    HandlerTable::iterator next_it = it;
-    ++next_it;
-    LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " in destructor NO " << ++i;
-    it->second(decoder, this);
-    response_handler_table_.erase(it);
-    it = next_it;
+  vector<boost::function2<void, boost::shared_ptr<const ProtobufDecoder>, ProtobufConnection*> > handlers;
+  {
+    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    for (HandlerTable::iterator it = response_handler_table_.begin();
+         it != response_handler_table_.end(); ++it) {
+      handlers.push_back(it->second);
+    }
+    response_handler_table_.clear();
   }
+  for (int i = 0; i < handlers.size(); ++i) {
+    LOG(WARNING) << name() << " : " << "Call response handler in ReleaseResponseTable NO " << i;
+    handlers[i](decoder, this);
+  }
+  handlers.clear();
 }
 
 void ProtobufConnection::Cleanup() {
   VLOG(2) << "ProtobufConnection::Cleanup";
-  boost::shared_ptr<ProtobufDecoder> decoder;
-  int i = 0;
-  {
-    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    if (closed_) {
-      LOG(WARNING) << "Already closed";
-      return;
-    }
-    for (HandlerTable::iterator it = response_handler_table_.begin();
-         it != response_handler_table_.end();) {
-      HandlerTable::iterator next_it = it;
-      ++next_it;
-      LOG(WARNING) << name() << " : " << "Call response handler " << it->first<< " Cleanup, NO " << ++i;
-      it->second(decoder, this);
-      response_handler_table_.erase(it);
-      it = next_it;
-    }
-    closed_ = true;
-  }
+  ReleaseResponseTable();
   Connection::Cleanup();
   delete this;
 }
@@ -97,6 +87,7 @@ boost::tribool ProtobufDecoder::Consume(char input) {
         state_ = Content;
         length_ = boost::lexical_cast<int>(length_store_);
         content_.reserve(length_);
+        VLOG(2) << "Length: " << length_store_ << " length size: " << length_store_.size() << " Content size: " << length_;
         return boost::indeterminate;
       } else if (!isdigit(input)) {
         LOG(WARNING) << "Length is not digit";
@@ -215,10 +206,6 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     handler = it->second;
   } else {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    if (closed_) {
-      LOG(WARNING) << "Already closed";
-      return;
-    }
     it = response_handler_table_.find(meta.identify());
     if (it == response_handler_table_.end()) {
       VLOG(2) << Name() << " : " << "Unknown request";
@@ -226,6 +213,7 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
     }
     handler = it->second;
     response_handler_table_.erase(it);
+    VLOG(2) << Name() << "Remove: " << meta.identify() << " table size: " << response_handler_table_.size();
   }
   handler(decoder, this);
 }
@@ -282,10 +270,6 @@ void ProtobufConnection::Timeout(const boost::system::error_code& e,
       controller);
   {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    if (closed_) {
-      LOG(WARNING) << "Already closed";
-      return;
-    }
     HandlerTable::iterator it = response_handler_table_.find(response_identify);
     if (it == response_handler_table_.end()) {
       VLOG(2) << name() << " : "
@@ -310,11 +294,6 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
   ProtobufLineFormat::MetaData meta;
   {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    if (closed_) {
-      ScopedClosure run(done);
-      LOG(WARNING) << "Already closed";
-      return;
-    }
     HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
     while (it != response_handler_table_.end()) {
       static int seq = 1;
@@ -328,6 +307,7 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
     if (!request->AppendToString(meta.mutable_content())) {
       LOG(WARNING) << "Fail to serialze request form method: "
         << method->full_name();
+      return;
     }
     response_handler_table_.insert(make_pair(
         response_identify,
@@ -335,6 +315,7 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
     VLOG(2) << name() << " Insert: " << response_identify << " to response handler table, size: " << response_handler_table_.size();
   }
   PushData(EncodeMessage(&meta));
+  VLOG(2) << Name() << " PushData, " << " incoming: " << incoming()->size();
   ScheduleWrite();
   ScheduleRead();
   if (timeout_ms_ > 0) {

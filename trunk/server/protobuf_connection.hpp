@@ -89,6 +89,7 @@ class ProtobufDecoder {
   template <typename InputIterator>
   boost::tuple<boost::tribool, InputIterator> Decode(
       InputIterator begin, InputIterator end) {
+    VLOG(2) << "Decode size: " << (end - begin);
     while (begin != end) {
       boost::tribool result = Consume(*begin++);
       if (result || !result) {
@@ -126,12 +127,12 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
           ProtobufConnection*> > HandlerTable;
  public:
   explicit ProtobufConnection(int timeout) : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(timeout), closed_(false) {
+      handler_table_(new HandlerTable), timeout_ms_(timeout) {
     VLOG(2) << "New protobuf connection" << this << " timeout: " << timeout;
   }
 
   ProtobufConnection() : ConnectionImpl<ProtobufDecoder>(),
-      handler_table_(new HandlerTable), timeout_ms_(0), closed_(false) {
+      handler_table_(new HandlerTable), timeout_ms_(0) {
     VLOG(2) << "New protobuf connection" << this;
   }
   CloseSignal *close_signal() {
@@ -160,6 +161,7 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
                   google::protobuf::Message *response,
                   google::protobuf::Closure *done);
  private:
+  void ReleaseResponseTable();
   virtual void Cleanup();
   void Timeout(const boost::system::error_code& e,
                uint64 resonse_identify,
@@ -173,6 +175,5 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
   // The response handler table is per connection.
   HandlerTable response_handler_table_;
   boost::mutex response_handler_table_mutex_;
-  bool closed_;
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

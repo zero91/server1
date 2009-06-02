@@ -49,6 +49,14 @@ class SharedConstBuffers {
   bool empty() const {
     return (start_ == buffer_.size());
   }
+  int size() const {
+    int s = 0;
+    for (int i = start_; i < buffer_.size(); ++i) {
+      const int bsize = boost::asio::buffer_size(buffer_[i]);
+      s += bsize;
+    }
+    return s;
+  }
   void consume(int size) {
     for (int i = start_; i < buffer_.size(); ++i) {
       const int bsize = boost::asio::buffer_size(buffer_[i]);
