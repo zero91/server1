@@ -19,7 +19,7 @@ Automatic links to other wiki pages
     * gflag
       * Install to path/third_party/gflag
     * glog
-      * Install to path/third_party/glog
+      * Install to path/third_party/glog with ./configure --with-gflags=path/third_party/gflags
     * protobuf
       * Install to path/third_party/protobuf
     * gtest
