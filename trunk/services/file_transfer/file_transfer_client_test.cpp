@@ -116,7 +116,7 @@ TEST_F(FileTransferTest, Test1) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest1"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   VLOG(2) << "Start";
@@ -142,7 +142,7 @@ TEST_F(FileTransferTest, Test2) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest2"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   CHECK(!client_connection_->IsConnected());
@@ -168,7 +168,7 @@ TEST_F(FileTransferTest, Test3) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest3"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
@@ -202,7 +202,7 @@ TEST_F(FileTransferTest, Test4) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest4"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
@@ -236,7 +236,7 @@ TEST_F(FileTransferTest, Test5) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest5"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
@@ -288,7 +288,7 @@ TEST_F(FileTransferTest, Test6) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest6"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
@@ -348,7 +348,7 @@ TEST_F(FileTransferTest, Test7) {
   // Send the checkbook.
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
-  boost::shared_ptr<Notifier> ns(new Notifier);
+  boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest7"));
   file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;

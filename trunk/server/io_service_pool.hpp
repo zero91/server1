@@ -16,7 +16,10 @@
 class IOServicePool : private boost::noncopyable {
 public:
   /// Construct the io_service pool.
-  explicit IOServicePool(const string &name, size_t pool_size);
+  explicit IOServicePool(
+      const string &name,
+      size_t num_io_services,
+      size_t num_threads);
   ~IOServicePool() {
     CHECK(!IsRunning());
   }
@@ -46,7 +49,8 @@ private:
 
   ThreadPool threadpool_;
   boost::mutex mutex_;
-  int pool_size_;
+  int num_io_services_;
+  int num_threads_;
   string name_;
 };
 #endif // NET2_IO_SERVICE_POOL_HPP_

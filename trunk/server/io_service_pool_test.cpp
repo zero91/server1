@@ -25,10 +25,11 @@ class IOServicePoolTest : public testing::Test {
   }
  protected:
   static const int kPoolSize = 100;
+  static const int kThreadSize = 200;
 };
 
 TEST_F(IOServicePoolTest, Test1) {
-  IOServicePool p("Test", kPoolSize);
+  IOServicePool p("Test", kPoolSize, kThreadSize);
   for (int k = 0; k < 1000; ++k) {
     p.Start();
     int item_size = kPoolSize * (rand() % 10 + 1);
@@ -50,7 +51,7 @@ TEST_F(IOServicePoolTest, Test1) {
 }
 
 TEST_F(IOServicePoolTest, Test2) {
-  IOServicePool p("Test", kPoolSize);
+  IOServicePool p("Test", kPoolSize, kThreadSize);
   for (int k = 0; k < 1000; ++k) {
     p.Start();
     int item_size = kPoolSize * (rand() % 10 + 1);

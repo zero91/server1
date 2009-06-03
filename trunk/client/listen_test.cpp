@@ -198,7 +198,7 @@ TEST_F(ListenTest, MultiThreadTest1) {
 TEST_F(ListenTest, MultiThreadMultConnectionTest1) {
   ThreadPool pool("Test", FLAGS_num_threads);
   pool.Start();
-  IOServicePool client_io("TestIO", 2);
+  IOServicePool client_io("TestIO", 2, 4);
   client_io.Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
@@ -206,7 +206,6 @@ TEST_F(ListenTest, MultiThreadMultConnectionTest1) {
     string name("MultiThreadMultConnectionTest1Client." + boost::lexical_cast<string>(i));
     boost::shared_ptr<ClientConnection> r(new ClientConnection(name, FLAGS_server, FLAGS_port));
     r->RegisterService(echo_service_.get());
-    r->set_threadpool(&pool);
     r->set_io_service_pool(&client_io);
     connections.push_back(r);
     CHECK(r->Connect());

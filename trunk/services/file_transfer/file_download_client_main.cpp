@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
       new FileTransferServiceImpl(FLAGS_local_root));
   scoped_ptr<FileDownloadNotifyImpl> local_file_notify(
       new FileDownloadNotifyImpl);
-  boost::shared_ptr<Notifier> notifier(new Notifier);
+  boost::shared_ptr<Notifier> notifier(new Notifier("FinishedNotify"));
   local_file_notify->GetSignal(kTestFile, local_filename)->connect(notifier->notify_handler());
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {

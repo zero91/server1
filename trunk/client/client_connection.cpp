@@ -17,7 +17,6 @@ bool ClientConnection::Connect() {
     LOG(WARNING) << "Connect but IsConnected";
     return true;
   }
-  if (out_threadpool_  == NULL) threadpool_.Start();
   if (out_io_service_pool_ == NULL) io_service_pool_.Start();
   boost::asio::ip::tcp::resolver::query query(server_, port_);
   boost::asio::ip::tcp::resolver resolver(GetIOService());
@@ -37,14 +36,9 @@ bool ClientConnection::Connect() {
     LOG(WARNING) << ":fail to connect, error:"  << error.message();
     return false;
   }
-  notifier_.reset(new Notifier);
+  notifier_.reset(new Notifier(Name() + ".Notifier"));
   ProtobufConnection *connection = connection_template_.Clone();
   connection->set_socket(socket);
-  if (out_threadpool_) {
-    connection->set_executor(out_threadpool_);
-  } else {
-    connection->set_executor(&threadpool_);
-  }
   proxy_ = FullDualChannelProxy::Create(connection);
   proxy_->close_signal()->connect(
       boost::bind(&ClientConnection::ConnectionClose, this));

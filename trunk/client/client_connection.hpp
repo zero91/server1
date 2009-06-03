@@ -15,8 +15,8 @@
 class ClientConnection : public FullDualChannel {
  public:
   ClientConnection(const string &name, const string &server, const string &port)
-    : io_service_pool_(name + ".IOService", 1),
-      threadpool_(name + ".ThreadPool", kClientThreadPoolSize), server_(server), port_(port), out_threadpool_(NULL), out_io_service_pool_(NULL) {
+    : io_service_pool_(name + ".IOService", 1, kClientThreadPoolSize),
+      server_(server), port_(port), out_io_service_pool_(NULL) {
       VLOG(2) << "Constructor client connection";
     connection_template_.set_name(server + "::" + port + "::" + name);
   }
@@ -41,13 +41,6 @@ class ClientConnection : public FullDualChannel {
       io_service_pool_.Stop();
     }
   }
-
-  void set_threadpool(ThreadPool *out_threadpool) {
-    out_threadpool_ = out_threadpool;
-    if (threadpool_.IsRunning()) {
-      threadpool_.Stop();
-    }
-  }
   bool IsConnected() {
     return proxy_.get() && proxy_->IsConnected();
   }
@@ -62,9 +55,6 @@ class ClientConnection : public FullDualChannel {
       notifier_->Wait();
       VLOG(2) << "Disconnect after notifer wait: " << Name();
     }
-    if (out_threadpool_ == NULL) {
-      threadpool_.Stop();
-    }
     if (out_io_service_pool_ == NULL) {
       io_service_pool_.Stop();
     }
@@ -72,7 +62,6 @@ class ClientConnection : public FullDualChannel {
   ~ClientConnection() {
     CHECK(!IsConnected());
     CHECK(!io_service_pool_.IsRunning());
-    CHECK(!threadpool_.IsRunning());
     VLOG(2) << "~ClientConnection";
   }
  private:
@@ -88,8 +77,6 @@ class ClientConnection : public FullDualChannel {
   boost::shared_ptr<FullDualChannelProxy> proxy_;
   ProtobufConnection connection_template_;
   IOServicePool io_service_pool_;
-  ThreadPool threadpool_;
-  ThreadPool *out_threadpool_;
   IOServicePool *out_io_service_pool_;
   string server_, port_;
   boost::shared_ptr<Notifier> notifier_;

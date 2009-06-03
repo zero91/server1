@@ -165,7 +165,7 @@ TEST_F(FileTransferTest, Test2) {
       new FileDownloadNotifyImpl);
   client_connection_->RegisterService(local_file_transfer_service.get());
   client_connection_->RegisterService(local_file_notify.get());
-  boost::shared_ptr<Notifier> notifier(new Notifier);
+  boost::shared_ptr<Notifier> notifier(new Notifier("FinishedNotify"));
   local_file_notify->GetSignal(kTestFile, local_filename)->connect(notifier->notify_handler());
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {

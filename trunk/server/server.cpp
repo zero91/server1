@@ -57,8 +57,8 @@ Server::~Server() {
 }
 
 Server::Server(int io_service_number, int worker_threads)
-  : io_service_pool_("ServerIOService", io_service_number),
-    threadpool_("ServerThreadpool", worker_threads) {
+  : io_service_pool_("ServerIOService",
+                     io_service_number, worker_threads) {
 }
 
 void Server::ReleaseAcceptor(const string &host) {
@@ -76,7 +76,6 @@ void Server::Listen(const string &address,
                     Connection* connection_template) {
   // Open the acceptor with the option to reuse the address (i.e. SO_REUSEADDR).
   VLOG(2) << "Server running";
-  threadpool_.Start();
   io_service_pool_.Start();
   const string host(address + "::" + port);
   boost::asio::ip::tcp::acceptor *acceptor = new boost::asio::ip::tcp::acceptor(io_service_pool_.get_io_service());
@@ -104,7 +103,6 @@ void Server::Stop() {
     VLOG(2) << "Server already stopped";
     return;
   }
-  LOG(WARNING) << "Stop io service pool";
   for (ChannelTable::iterator it = channel_table_.begin();
        it != channel_table_.end(); ++it) {
     Connection *channel = *it;
@@ -120,10 +118,9 @@ void Server::Stop() {
     }
     acceptor_table_.clear();
   }
-  LOG(WARNING) << "Stop thread pool";
-  threadpool_.Stop();
-  LOG(WARNING) << "Server stopped";
+  LOG(WARNING) << "Stop io service pool";
   io_service_pool_.Stop();
+  LOG(WARNING) << "Server stopped";
 }
 
 void Server::RemoveConnection(Connection *connection) {
@@ -143,7 +140,6 @@ void Server::HandleAccept(const boost::system::error_code& e,
   }
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
-  new_connection->set_executor(&threadpool_);
   new_connection->close_signal()->connect(boost::bind(
       &Server::RemoveConnection, this, new_connection));
   channel_table_.insert(new_connection);

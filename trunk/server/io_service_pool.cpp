@@ -10,11 +10,16 @@
 #include "server/io_service_pool.hpp"
 #include <boost/bind.hpp>
 #include <glog/logging.h>
-IOServicePool::IOServicePool(const string &name, size_t pool_size)
-  : name_(name), pool_size_(pool_size),
-    next_io_service_(0), threadpool_(name + ".ThreadPool", pool_size) {
-  CHECK_GT(pool_size, 0);
-
+IOServicePool::IOServicePool(
+    const string &name,
+    size_t num_io_services,
+    size_t num_threads)
+  : name_(name),
+    num_io_services_(num_io_services),
+    num_threads_(num_threads),
+    next_io_service_(0),
+    threadpool_(name + ".ThreadPool", num_threads) {
+  CHECK_GE(num_threads, num_io_services);
 }
 
 void IOServicePool::Start() {
@@ -24,18 +29,26 @@ void IOServicePool::Start() {
     return;
   }
   work_.clear();
-  io_services_.clear();
+  if (io_services_.empty()) {
+    for (size_t i = 0; i < num_io_services_; ++i) {
+      boost::shared_ptr<boost::asio::io_service> io_service(new boost::asio::io_service);
+      io_services_.push_back(io_service);
+    }
+  } else {
+    for (size_t i = 0; i < num_io_services_; ++i) {
+      io_services_[i]->reset();
+    }
+  }
   // Give all the io_services work to do so that their run() functions will not
   // exit until they are explicitly stopped.
-  work_.reserve(pool_size_);
-  io_services_.reserve(pool_size_);
-  for (size_t i = 0; i < pool_size_; ++i) {
-    boost::shared_ptr<boost::asio::io_service> io_service(new boost::asio::io_service);
-    io_services_.push_back(io_service);
-    io_service->reset();
+  work_.reserve(num_threads_);
+  int k = 0;
+  for (int i = 0; i < num_threads_; ++i) {
+    boost::shared_ptr<boost::asio::io_service> io_service = io_services_[k];
+    k = (k + 1) % num_io_services_;
     boost::shared_ptr<boost::asio::io_service::work> worker(new boost::asio::io_service::work(*io_service));
     work_.push_back(worker);
-    threadpool_.PushTask(boost::bind(&boost::asio::io_service::run, io_service));
+    threadpool_.PushTask(boost::bind(&boost::asio::io_service::run, io_service.get()));
   }
   threadpool_.Start();
 }
@@ -50,7 +63,6 @@ void IOServicePool::Stop() {
     work_[i].reset();
   }
   work_.clear();
-  io_services_.clear();
   threadpool_.Stop();
 }
 

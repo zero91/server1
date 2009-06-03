@@ -38,7 +38,7 @@ TEST_F(NotifierTest, TestWait) {
   v.resize(kItemSize, 0);
   p1.Start();
   for (int k = 0; k < kItemSize; ++k) {
-    boost::shared_ptr<Notifier> n(new Notifier);
+    boost::shared_ptr<Notifier> n(new Notifier("Test"));
     const boost::function0<bool> h = boost::bind(&Notifier::Wait, n);
     p1.PushTask(boost::bind(
         &NotifierTest::Wait, this,
@@ -68,7 +68,7 @@ TEST_F(NotifierTest, TestWaitOut) {
   v.resize(kItemSize, 0);
   p1.Start();
   for (int k = 0; k < kItemSize; ++k) {
-    boost::shared_ptr<Notifier> n(new Notifier);
+    boost::shared_ptr<Notifier> n(new Notifier("Test"));
     const boost::function0<bool> h = boost::bind(&Notifier::Wait, n, 1);
     p1.PushTask(boost::bind(
         &NotifierTest::Wait, this,
@@ -88,7 +88,7 @@ TEST_F(NotifierTest, TestDelete) {
   v.resize(kItemSize, 0);
   p1.Start();
   for (int k = 0; k < kItemSize; ++k) {
-    boost::shared_ptr<Notifier> n(new Notifier);
+    boost::shared_ptr<Notifier> n(new Notifier("Test"));
     p1.PushTask(n->notify_handler());
   }
   for (int i = 0; i < kItemSize; ++i) {

@@ -11,7 +11,6 @@
 #define NET2_CONNECTION_HPP_
 #include "base/base.hpp"
 #include "base/executor.hpp"
-#include "base/release_proxy.hpp"
 #include "glog/logging.h"
 #include "server/meta.pb.h"
 #include "protobuf/service.h"
@@ -21,7 +20,7 @@
 class Connection;
 class ConnectionStatus {
  public:
-  ConnectionStatus() : status_(IDLE), reader_(0), writter_(0), handler_(0) {
+  ConnectionStatus() : status_(0), out_standing_(0) {
   }
   bool reading() const {
     return status_ & READING;
@@ -51,22 +50,6 @@ class ConnectionStatus {
     status_ |= CLOSING;
   }
 
-  void set_shutdown() {
-    status_ |= SHUTDOWN;
-  }
-
-  bool shutdown() {
-    return status_ & SHUTDOWN;
-  }
-
-  void set_closed() {
-    status_ |= CLOSED;
-  }
-
-  bool closed() const {
-    return status_ & CLOSED;
-  }
-
   bool closing() const {
     return status_ & CLOSING;
   }
@@ -75,73 +58,51 @@ class ConnectionStatus {
     return status_;
   }
 
-  void DecreaseReaderCounter() {
-    --reader_;
+  void inc_out_standing() {
+    ++out_standing_;
   }
 
-  void IncreaseReaderCounter() {
-    ++reader_;
-  }
-  int reader() const {
-    return reader_;
+  void dec_out_standing() {
+    --out_standing_;
   }
 
-  void DecreaseWritterCounter() {
-    --writter_;
-  }
-  void IncreaseWritterCounter() {
-    ++writter_;
-  }
-  int writter() const {
-    return writter_;
+  int out_standing() const {
+    return out_standing_;
   }
 
-  void DecreaseHandlerCounter() {
-    --handler_;
-  }
-  void IncreaseHandlerCounter() {
-    ++handler_;
-  }
-  int handler() const {
-    return handler_;
+  bool cleanup_posted() {
+    return status_ & CLEANUP_POSTED;
   }
 
-  class ScopedExit {
-   public:
-    ScopedExit(const string name, Connection *connection, boost::shared_ptr<ConnectionStatus> status)
-      : name_(name), connection_(connection), status_(status) {
-    }
-    inline ~ScopedExit();
-   private:
-    string name_;
-    Connection *connection_;
-    boost::shared_ptr<ConnectionStatus> status_;
-  };
+  void set_cleanup_posted() {
+    status_ |= CLEANUP_POSTED;
+  }
+
+  bool time_to_destroy() {
+    return out_standing_ == 0 && closing() && !cleanup_posted();
+  }
  private:
   enum InternalConnectionStatus {
-    IDLE = 0x01,
-    READING = 0x01 << 1,
-    WRITTING = 0x01 << 2,
-    CLOSING = 0x01 << 3,
-    SHUTDOWN = 0x01 << 4,
-    CLOSED = 0x01 << 5,
+    IDLE = 0x0,
+    READING = 0x01,
+    WRITTING = 0x01 << 1,
+    CLOSING = 0x01 << 2,
+    CLEANUP_POSTED = 0x01 << 3,
   };
-  mutable int status_;
-  mutable int reader_, writter_, handler_;
-  Connection *connection_;
+  int status_;
+  int out_standing_;
 };
 
 class Connection {
  public:
-  Connection() : timeout_(kDefaultTimeoutMs), status_(new ConnectionStatus), release_proxy_(new ReleaseProxy) {
+  Connection() : timeout_(kDefaultTimeoutMs) {
   }
   void Close() {
     if (!strand_.get()) {
       VLOG(2) << name() << " strand is null, may closed";
       return;
     }
-
-    strand_->post(boost::bind(&Connection::InternalClose, status_, this));
+    strand_->post(boost::bind(&Connection::InternalShutdown, this));
   }
 
   virtual void set_socket(boost::asio::ip::tcp::socket *socket) {
@@ -154,24 +115,17 @@ class Connection {
     boost::asio::ip::tcp::socket::non_blocking_io non_blocking_io(true);
     socket_->io_control(non_blocking_io);
     strand_.reset(new boost::asio::io_service::strand(socket_->get_io_service()));
-    /*
+    CHECK_EQ(status_.out_standing(), 0);
     send_timer_.reset(new boost::asio::deadline_timer(socket->get_io_service()));
     recv_timer_.reset(new boost::asio::deadline_timer(socket->get_io_service()));
-    OOBSend();
-    OOBRecv(boost::system::error_code());
-    */
+    status_.inc_out_standing();
+    strand_->post(boost::bind(&Connection::OOBSend, this, boost::system::error_code()));
+    status_.inc_out_standing();
+    strand_->post(boost::bind(&Connection::OOBRecv, this, boost::system::error_code()));
   }
 
   void set_timeout(int timeout_ms) {
     timeout_ = timeout_ms;
-  }
-
-  void set_executor(Executor *executor) {
-    executor_ = executor;
-  }
-
-  Executor *executor() const {
-    return executor_;
   }
 
   void set_name(const string name) {
@@ -195,60 +149,18 @@ class Connection {
   virtual void ScheduleWrite() = 0;
   virtual ~Connection() {
     VLOG(2) << name_ << " Distroy connection.";
-    if (send_timer_.get()) {
-      send_timer_->cancel();
-    }
-    if (recv_timer_.get()) {
-      recv_timer_->cancel();
-    }
-    release_proxy_->Invalid();
   }
  protected:
   static const char kHeartBeat = 0xb;
   static const int kDefaultTimeoutMs = 3000;
   static const int kRecvDelayFactor = 2;
   inline void OOBRecv(const boost::system::error_code &e);
-  static void OOBSend(const string name,
-                      boost::shared_ptr<ConnectionStatus> status,
-                      Connection *connection,
-                      const boost::system::error_code &e) {
-    if (status->closing()) {
-      VLOG(2) << name << " : " << "OOBSend but is closing";
-      return;
-    }
-    if (e == boost::asio::error::operation_aborted) {
-      VLOG(2) << name << " : " << "OOBSend cancel";
-      return;
-    }
-    connection->OOBSend();
-  }
-  void OOBSend() {
-    char heartbeat = kHeartBeat;
-    VLOG(2) << name() << " : " << "OOBSend";
-    socket_->send(boost::asio::buffer(&heartbeat, sizeof(heartbeat)),
-                  boost::asio::socket_base::message_out_of_band);
-    send_timer_->expires_from_now(boost::posix_time::milliseconds(timeout_));
-    send_timer_->async_wait(boost::bind(&Connection::OOBSend, name(), status_, this, _1));
-  }
-  static void Timeout(const string name,
-                      boost::shared_ptr<ConnectionStatus> status,
-                      Connection *connection, const boost::system::error_code &e) {
-    if (status->closing()) {
-      VLOG(2) << name << " : " << "Timeout but is closing";
-      return;
-    }
-    if (e == boost::asio::error::operation_aborted) {
-      VLOG(2) << connection->name() << " : " << " Timeout canceled";
-      return;
-    }
-    VLOG(2) << connection->name() << " : " << " Timeouted";
-    connection->Close();
-  }
+  inline void OOBSend(const boost::system::error_code &e);
+  inline void Timeout(const boost::system::error_code &e);
   inline virtual void Cleanup();
-  inline void Run(const boost::function0<void> &f);
-  static inline void InternalClose(boost::shared_ptr<ConnectionStatus> status, Connection *connection);
-  inline void Shutdown();
-  inline void RunDone();
+  inline void InternalClose();
+  inline void InternalShutdown();
+  inline void InternalDestroyOrNot();
   virtual void HandleRead(const boost::system::error_code& e, size_t bytes_transferred) = 0;
   virtual void HandleWrite(const boost::system::error_code& e, size_t byte_transferred) = 0;
   scoped_ptr<boost::asio::io_service::strand> strand_;
@@ -256,111 +168,11 @@ class Connection {
   Executor *executor_;
   string name_;
   boost::signals2::signal<void()> close_signal_;
-  boost::shared_ptr<ConnectionStatus> status_;
-  boost::shared_ptr<ReleaseProxy> release_proxy_;
+  ConnectionStatus status_;
   boost::scoped_ptr<boost::asio::deadline_timer> send_timer_;
   boost::scoped_ptr<boost::asio::deadline_timer> recv_timer_;
   int timeout_;
   char heartbeat_;
-  friend class ConnectionOOBRecvHandler;
-  friend class ConnectionReadHandler;
-  friend class ConnectionWriteHandler;
-  friend class ConnectionStatus::ScopedExit;
-};
-
-class ConnectionOOBRecvHandler {
- public:
-  ConnectionOOBRecvHandler(const string &name, Connection* connection, boost::shared_ptr<ConnectionStatus> status)
-    : name_(name), connection_(connection), status_(status) {
-  }
-  void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
-    VLOG(2) << name_ << " : " << "ConnectionOOBRecvHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
-    if (!e) {
-      if (!status_->closed()) {
-        connection_->OOBRecv(e);
-      } else {
-        VLOG(2) << name_ << " : " << "non error but connection is closed";
-      }
-    } else {
-      ConnectionStatus::ScopedExit exiter(name_ + ".ConnectionOOBRecvHandler", connection_, status_);
-      if (!status_->closed()) {
-        VLOG(2) << name_ << " : " << "error then closing " << connection_->name();
-        Connection::InternalClose(status_, connection_);
-      } else {
-        VLOG(2) << name_ << " : " << "error but connection is closed";
-      }
-    }
-  }
- private:
-  string name_;
-  Connection* connection_;
-  boost::shared_ptr<ConnectionStatus> status_;
-};
-
-class ConnectionReadHandler {
- public:
-  ConnectionReadHandler(const string &name, Connection* connection, boost::shared_ptr<ConnectionStatus> status)
-    : name_(name), connection_(connection), status_(status) {
-  }
-  void operator()(const boost::system::error_code &e, size_t bytes_transferred) {
-    VLOG(2) << name_ << " : " << "ConnectionReadHandler e: " << e.message() << " bytes: " << bytes_transferred << " status: " << status_->status();
-    status_->DecreaseReaderCounter();
-    if (!e) {
-      if (!status_->closed()) {
-        connection_->HandleRead(e, bytes_transferred);
-      } else {
-        status_->clear_reading();
-        VLOG(2) << name_ << " : " << "non error but connection is closed";
-      }
-    } else {
-      ConnectionStatus::ScopedExit exiter(name_ + ".ConnectionReadHandler", connection_, status_);
-      if (!status_->closed()) {
-        VLOG(2) << name_ << " : " << "error then closing " << connection_->name();
-        status_->clear_reading();
-        Connection::InternalClose(status_, connection_);
-      } else {
-        status_->clear_reading();
-        VLOG(2) << name_ << " : " << "error but connection is closed";
-      }
-    }
-  }
- private:
-  string name_;
-  Connection* connection_;
-  boost::shared_ptr<ConnectionStatus> status_;
-};
-
-class ConnectionWriteHandler {
- public:
-  ConnectionWriteHandler(const string &name, Connection* connection, boost::shared_ptr<ConnectionStatus> status)
-    : name_(name), connection_(connection), status_(status) {
-  }
-  void operator() (const boost::system::error_code &e, size_t byte_transferred) {
-    VLOG(2) << name_ << " : " << "ConnectionWriteHandler e: " << e.message() << " bytes: " << byte_transferred;
-    status_->DecreaseWritterCounter();
-    if (!e) {
-      if (!status_->closed()) {
-        connection_->HandleWrite(e, byte_transferred);
-      } else {
-        status_->clear_writting();
-        VLOG(2) << name_ << " : " << "non error but connection is already closed";
-      }
-    } else {
-      ConnectionStatus::ScopedExit exiter(name_ + ".ConnectionWriteHandler", connection_, status_);
-      if (!status_->closed()) {
-        VLOG(2) << name_ << " : " << "error then closing " << connection_->name();
-        status_->clear_writting();
-        Connection::InternalClose(status_, connection_);
-      } else {
-        status_->clear_reading();
-        VLOG(2) << name_ << " : " << "error but connection is closed";
-      }
-    }
-  }
- private:
-  string name_;
-  Connection* connection_;
-  boost::shared_ptr<ConnectionStatus> status_;
 };
 
 // Represents a single Connection from a client.
@@ -412,99 +224,102 @@ public:
   boost::shared_ptr<Decoder> decoder_;
 };
 
-ConnectionStatus::ScopedExit::~ScopedExit() {
-  if (status_->closed()) {
-    VLOG(2) << name_ << " ~ScopedExit connection closed";
+void Connection::Timeout(const boost::system::error_code &e) {
+  status_.dec_out_standing();
+  if (e == boost::asio::error::operation_aborted) {
+    VLOG(2) << name() << " : " << "Timeout canceled";
     return;
   }
-  VLOG(2) << name_ << " "
-          << connection_->name()
-          << " reader: " << status_->reader() << " writer: "
-          << status_->writter() << " handler: " << status_->handler() << " status: " << status_->status();
-  if (status_->reader() <= 1 && status_->handler() == 0 && status_->writter() <= 1 && status_->shutdown()) {
-    VLOG(2) << "Shutdown : " << connection_->name();
-    if (!connection_->socket_->is_open()) {
-      VLOG(2) << connection_->name() << " socket is not openeed";
-      connection_->Shutdown();
-      return;
-    }
-    connection_->strand_->post(
-        boost::bind(&Connection::Shutdown, connection_));
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << "Timeout but is closing";
+    InternalDestroyOrNot();
+    return;
   }
+  VLOG(2) << name() << " : " << " Timeouted";
+  strand_->post(boost::bind(&Connection::InternalShutdown, this));
+}
+
+void Connection::OOBSend(const boost::system::error_code &e) {
+  status_.dec_out_standing();
+  if (e == boost::asio::error::operation_aborted) {
+    VLOG(2) << name() << " : " << "OOBSend cancel";
+    return;
+  }
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << "OOBSend but is closing";
+    InternalDestroyOrNot();
+    return;
+  }
+  char heartbeat = kHeartBeat;
+  VLOG(2) << name() << " : " << "OOBSend";
+  int n= socket_->send(boost::asio::buffer(&heartbeat, sizeof(heartbeat)),
+                       boost::asio::socket_base::message_out_of_band);
+  if (n != sizeof(heartbeat)) {
+    VLOG(2) << name() << " : " << "OOBSend error, n:" << n;
+    strand_->post(boost::bind(&Connection::InternalClose, this));
+    return;
+  }
+  send_timer_->expires_from_now(boost::posix_time::milliseconds(timeout_));
+  status_.inc_out_standing();
+  send_timer_->async_wait(
+      strand_->wrap(boost::bind(&Connection::OOBSend, this, _1)));
 }
 
 void Connection::OOBRecv(const boost::system::error_code &e) {
+  status_.dec_out_standing();
   if (e == boost::asio::error::operation_aborted) {
-    VLOG(2) << "OOBRecv cancel";
+    VLOG(2) << name() << " : " << "OOBRecv cancel";
     return;
   }
-  VLOG(2) << name() << " : " << " OOBRecv";
-  recv_timer_->cancel();
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << "OOBRecv but is closing";
+    InternalDestroyOrNot();
+    return;
+  }
+  VLOG(2) << name() << " : " << "OOBRecv";
   recv_timer_->expires_from_now(boost::posix_time::milliseconds(
       timeout_ * kRecvDelayFactor));
-  recv_timer_->async_wait(boost::bind(&Connection::Timeout, name(), status_, this, _1));
+  recv_timer_->cancel();
+  status_.inc_out_standing();
+  recv_timer_->async_wait(
+      strand_->wrap(boost::bind(&Connection::Timeout, this, _1)));
+  status_.inc_out_standing();
   socket_->async_receive(boost::asio::buffer(&heartbeat_, sizeof(heartbeat_)),
                          boost::asio::socket_base::message_out_of_band,
-                         ConnectionOOBRecvHandler(name_ + ".OOBRecv", this, status_));
+                         strand_->wrap(boost::bind(&Connection::OOBRecv, this, _1)));
 }
 
-void Connection::InternalClose(boost::shared_ptr<ConnectionStatus> status, Connection *connection) {
-  if (status->closing()) {
-    VLOG(2) << "Call InternalClose but already in closing";
+void Connection::InternalShutdown() {
+  if (status_.closing()) {
+    VLOG(2) << "Call InternalShutdown but is closing";
     return;
   }
-  ConnectionStatus::ScopedExit exiter(connection->name() + ".InternalClose", connection, status);
-  VLOG(2) << connection->name() << " : " << "InternalClose";
-  status->set_closing();
-  status->set_shutdown();
-  if (connection->recv_timer_.get()) {
-    connection->recv_timer_->cancel();
-    connection->recv_timer_.reset();
+  status_.set_closing();
+  boost::system::error_code e;
+  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, e);
+  if (e) {
+    VLOG(2) << "Shutdown error:" << e;
   }
-  if (connection->send_timer_.get()) {
-    connection->send_timer_->cancel();
-    connection->send_timer_.reset();
-  }
-  boost::system::error_code ignored_ec;
-  connection->socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
+  strand_->post(boost::bind(&Connection::InternalClose, this));
 }
 
-void Connection::Shutdown() {
-  if (status_->closed()) {
-    VLOG(2) << name() << " Call Shutdown but already closed";
-    return;
+void Connection::InternalDestroyOrNot() {
+  if (status_.time_to_destroy()) {
+    status_.set_cleanup_posted();
+    strand_->post(boost::bind(&Connection::Cleanup, this));
   }
-  status_->set_closed();
-  if (!socket_->is_open()) {
-    VLOG(2) << name() << " socket is not openeed";
-    Cleanup();
-    return;
-  }
+}
+
+void Connection::InternalClose() {
   socket_->close();
-  strand_->post(boost::bind(&Connection::Cleanup, this));
+  recv_timer_->cancel();
+  send_timer_->cancel();
+  InternalDestroyOrNot();
 }
 
 void Connection::Cleanup() {
-  VLOG(2) << name() << " Connection::Cleanup";
-  VLOG(2) << name() << " Cleanup, num_slots: " << close_signal_.num_slots();
+  VLOG(2) << name() << "Connection::Cleanup, num_slots: " << close_signal_.num_slots();
   close_signal_();
-}
-
-void Connection::Run(const boost::function0<void> &f) {
-  VLOG(2) << name() << " Run";
-  f();
-  if (!socket_->is_open()) {
-    VLOG(2) << name() << " socket is not openeed";
-    RunDone();
-    return;
-  }
-  strand_->post(boost::bind(&Connection::RunDone, this));
-}
-
-void Connection::RunDone() {
-  VLOG(2) << name() << " : RunDone";
-  ConnectionStatus::ScopedExit exiter("RunDone", this, status_);
-  status_->DecreaseHandlerCounter();
 }
 
 template <class Decoder>
@@ -512,59 +327,52 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
                                          size_t bytes_transferred) {
   VLOG(2) << name() << " HandleRead, e: " << e.message() << ", bytes: "
     << bytes_transferred;
-  CHECK(status_->reading());
-  if (bytes_transferred > 0) {
-    // OOBRecv(boost::system::error_code());
-    boost::tribool result;
-    const char *start = buffer_.data();
-    const char *end = start + bytes_transferred;
-    const char *p = start;
-    while (p < end) {
-      boost::tie(result, p) =
-        decoder_->Decode(p, end);
-      if (result) {
-        VLOG(2) << name() << " : " << "Handle lineformat: size: " << (p - start);
-        boost::shared_ptr<const Decoder> shared_decoder(decoder_);
-        decoder_.reset(new Decoder);
-        Executor *this_executor = this->executor();
-        boost::function0<void> handler_run = boost::bind(&ConnectionImpl<Decoder>::Handle, this, shared_decoder);
-        boost::function0<void> h = boost::bind(&Connection::Run, this, handler_run);
-        status_->IncreaseHandlerCounter();
-        if (this_executor == NULL) {
-          h();
-        } else {
-          // This is executed in another thread.
-          this_executor->Run(h);
-        }
-      } else if (!result) {
-        VLOG(2) << name() << " : " << "Parse error";
-        status_->clear_reading();
-        InternalScheduleRead();
-        break;
-      } else {
-        VLOG(2) << name() << " : " << "Need to read more data";
-        status_->clear_reading();
-        InternalScheduleRead();
-        return;
-      }
+  CHECK(status_.reading());
+  status_.dec_out_standing();
+  if (e) {
+    if (status_.closing()) {
+      VLOG(2) << "HandleRead error, but is closing, return";
+      status_.clear_reading();
+      InternalDestroyOrNot();
+    } else {
+      VLOG(2) << "HandleRead error, is not closing, post close request";
+      status_.clear_reading();
+      strand_->post(boost::bind(&Connection::InternalClose, this));
+    }
+    return;
+  }
+
+  // OOBRecv(boost::system::error_code());
+  boost::tribool result;
+  const char *start = buffer_.data();
+  const char *end = start + bytes_transferred;
+  const char *p = start;
+  while (p < end) {
+    boost::tie(result, p) =
+      decoder_->Decode(p, end);
+    if (result) {
+      VLOG(2) << name() << " : " << "Handle lineformat: size: " << (p - start);
+      boost::shared_ptr<const Decoder> shared_decoder(decoder_);
+      decoder_.reset(new Decoder);
+      Handle(shared_decoder);
+    } else if (!result) {
+      VLOG(2) << name() << " : " << "Parse error";
+      break;
+    } else {
+      VLOG(2) << name() << " : " << "Need to read more data";
+      break;
     }
   }
-  VLOG(2) << name() << " : " << "InternalScheduleRead after reach the end status: " << status_->status();
-  status_->clear_reading();
-  InternalScheduleRead();
+  status_.inc_out_standing();
+  socket_->async_read_some(
+      boost::asio::buffer(buffer_),
+      strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleRead, this, _1, _2)));
+  OOBRecv(boost::system::error_code());
+  return;
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleRead() {
-  if (status_->closing()) {
-    VLOG(2) << "Call ScheduleRead but is closing";
-    return;
-  }
-  VLOG(2) << name() << " : " << "ScheduleRead status: " << status_->status();
-  if (status_->reading()) {
-    VLOG(2) << name() << " : " << "Alreading in reading status";
-    return;
-  }
   if (!strand_.get()) {
     VLOG(2) << name() << " : " << "ScheduleRead but strand is null";
     return;
@@ -574,44 +382,24 @@ void ConnectionImpl<Decoder>::ScheduleRead() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleRead() {
-  ConnectionStatus::ScopedExit exiter(name_ + ".InternalScheduleRead", this, status_);
-  VLOG(2) << name() << " : " << " Internal ScheduleRead status: " << status_->status();
-  /*
-  if (status_->closing()) {
-    VLOG(2) << "Call InternalScheduleRead but is closing";
+  VLOG(2) << name() << " : " << " InternalScheduleRead status: " << status_.status();
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << "InternalScheduleRead but closing";
     return;
   }
-  */
-  if (status_->reading()) {
-    VLOG(2) << name() << " : " << "Alreading in reading status";
+  if (status_.reading()) {
+    VLOG(2) << name() << " : " << "InternalScheduleRead but already reading";
     return;
   }
-  if (!socket_.get()) {
-    VLOG(2) << name() << " : " << "InternalScheduleRead but socket is null";
-    return;
-  }
-  status_->set_reading();
-  if (socket_->is_open()) {
-    VLOG(2) << name() << " : " << "async read some";
-    status_->IncreaseReaderCounter();
-    socket_->async_read_some(
-        boost::asio::buffer(buffer_), strand_->wrap(ConnectionReadHandler(name() + ".InternalScheduleRead", this, status_)));
-  } else {
-    VLOG(2) << name() << " : " << "InternalScheduleRead but socket is closed";
-  }
+  status_.set_reading();
+  status_.inc_out_standing();
+  socket_->async_read_some(
+      boost::asio::buffer(buffer_),
+      strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleRead, this, _1, _2)));
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleWrite() {
-  if (status_->closing()) {
-    VLOG(2) << " ScheduleWrite but is closing";
-    return;
-  }
-  VLOG(2) << name() << " : " << "ScheduleWrite status: " << status_->status();
-  if (status_->writting()) {
-    VLOG(2) << name() << " : " << "Alreading in writting status";
-    return;
-  }
   if (!strand_.get()) {
     VLOG(2) << name() << " : " << " ScheduleWrite but strand is null";
     return;
@@ -621,66 +409,70 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleWrite() {
-  VLOG(2) << name() << " : " << " InternalScheduleWrite" << " status: " << status_->status();
-  ConnectionStatus::ScopedExit exiter(name_ + ".InternalScheduleWrite", this, status_);
-  /*
-  if (status_->closing()) {
-    VLOG(2) << "Call InternalScheduleWrite but is closing";
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << " InternalScheduleWrite but closing";
     return;
   }
-  */
-  if (status_->writting()) {
-    VLOG(2) << name() << " : " << "Alreading in writting status";
+  if (status_.writting()) {
+    VLOG(2) << name() << " : " << " InternalScheduleWrite but already writting";
     return;
   }
-  if (!socket_.get()) {
-    VLOG(2) << name() << " : " << " InternalScheduleWrite but socket is null";
-    return;
-  }
-  status_->set_writting();
+  status_.set_writting();
   VLOG(2) << name() << " duplex_[0] : " << duplex_[0].empty();
   VLOG(2) << name() << " duplex_[1] : " << duplex_[1].empty();
   VLOG(2) << name() << " incoming: " << incoming_index_;
   SwitchIO();
-  VLOG(2) << name() << " : " << "Internal Schedule Write socket open:" << socket_->is_open();
   if (outcoming()->empty()) {
     SwitchIO();
     if (outcoming()->empty()) {
-      status_->clear_writting();
+      status_.clear_writting();
       VLOG(2) << name() << " : " << "No outcoming";
       return;
     }
   }
 
-  if (socket_->is_open()) {
-    status_->IncreaseWritterCounter();
-    socket_->async_write_some(
-        *outcoming(),
-        strand_->wrap(ConnectionWriteHandler(name() + ".InternalScheduleWrite", this, status_)));
-  }
+  status_.inc_out_standing();
+  socket_->async_write_some(
+      *outcoming(),
+      strand_->wrap(boost::bind(&Connection::HandleWrite, this, _1, _2)));
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e, size_t byte_transferred) {
-  VLOG(2) << name() << " : " << "HandleWrite bytes: " << byte_transferred << " status: " << status_->status();
-  CHECK(status_->writting());
-  if (!e) {
-    outcoming()->consume(byte_transferred);
+  VLOG(2) << name() << " : " << "HandleWrite bytes: " << byte_transferred << " status: " << status_.status();
+  CHECK(status_.writting());
+  status_.dec_out_standing();
+  if (e) {
+    status_.clear_writting();
+    if (status_.closing()) {
+      VLOG(2) << name() << " : " << "Write error, is closing";
+      InternalDestroyOrNot();
+    } else {
+      VLOG(2) << name() << " : " << "Write error, is not closing, post close request";
+      strand_->post(boost::bind(&Connection::InternalClose, this));
+    }
+    return;
+  }
+  outcoming()->consume(byte_transferred);
+  if (!outcoming()->empty()) {
+    VLOG(2) << name() << " outcoming is not empty, size" << outcoming()->size();
+    status_.inc_out_standing();
+    socket_->async_write_some(
+        *outcoming(),
+        strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleWrite, this, _1, _2)));
+  } else {
+    VLOG(2) << name() << " : " << "outcoming is empty";
+    outcoming()->clear();
+    SwitchIO();
     if (!outcoming()->empty()) {
-      VLOG(2) << name() << " outcoming is not empty, size" << outcoming()->size();
-      status_->IncreaseWritterCounter();
+      VLOG(2) << name() << " : " << "outcoming is not empty after SwitchIO, size" << outcoming()->size();
+      status_.inc_out_standing();
       socket_->async_write_some(
           *outcoming(),
-          strand_->wrap(ConnectionWriteHandler(name() + ".HandleWrite", this, status_)));
+          strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleWrite, this, _1, _2)));
     } else {
-      VLOG(2) << name() << " outcoming is empty";
-      outcoming()->clear();
-      status_->clear_writting();
-      InternalScheduleWrite();
+      status_.clear_writting();
     }
-  } else {
-    status_->clear_writting();
-    VLOG(2) << name() << " : " << "Write error, clear status and return";
   }
 }
 #endif // NET2_CONNECTION_HPP_

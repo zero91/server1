@@ -17,7 +17,6 @@
 #include <boost/shared_ptr.hpp>
 #include "server/full_dual_channel_proxy.hpp"
 #include "server/io_service_pool.hpp"
-#include "thread/threadpool.hpp"
 
 class AcceptorHandler;
 // The top-level class of the Server.
@@ -62,7 +61,6 @@ private:
 
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
-  ThreadPool threadpool_;
   friend class AcceptorHandler;
   ChannelTable channel_table_;
   boost::mutex channel_table_mutex_;

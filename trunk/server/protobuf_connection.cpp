@@ -35,7 +35,9 @@ void ProtobufConnection::ReleaseResponseTable() {
   boost::shared_ptr<ProtobufDecoder> decoder;
   vector<boost::function2<void, boost::shared_ptr<const ProtobufDecoder>, ProtobufConnection*> > handlers;
   {
+    VLOG(2) << name() << " : " << "before lock";
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    VLOG(2) << name() << " : " << "after lock";
     for (HandlerTable::iterator it = response_handler_table_.begin();
          it != response_handler_table_.end(); ++it) {
       handlers.push_back(it->second);
@@ -205,7 +207,9 @@ void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder
   if (it != handler_table_->end()) {
     handler = it->second;
   } else {
+    VLOG(2) << name() << " : " << "before lock";
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    VLOG(2) << name() << " : " << "after lock";
     it = response_handler_table_.find(meta.identify());
     if (it == response_handler_table_.end()) {
       VLOG(2) << Name() << " : " << "Unknown request";
@@ -266,7 +270,9 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
   uint64 response_identify = hash8(response->GetDescriptor()->full_name());
   ProtobufLineFormat::MetaData meta;
   {
+    VLOG(2) << name() << " : " << "before lock";
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
+    VLOG(2) << name() << " : " << "after lock";
     HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
     while (it != response_handler_table_.end()) {
       static int seq = 1;

@@ -23,11 +23,11 @@
 class ProtobufConnection;
 class RpcController : virtual public google::protobuf::RpcController {
  public:
-  RpcController() : notifier_(new Notifier) {
+  RpcController() : notifier_(new Notifier("RPCController")) {
   }
   void Reset() {
     failed_.clear();
-    notifier_.reset(new Notifier);
+    notifier_.reset(new Notifier("RPCController"));
   }
   void SetFailed(const string &failed) {
     failed_ = failed;
