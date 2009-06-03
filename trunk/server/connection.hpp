@@ -122,6 +122,7 @@ class Connection {
     strand_->post(boost::bind(&Connection::OOBSend, this, boost::system::error_code()));
     status_.inc_out_standing();
     strand_->post(boost::bind(&Connection::OOBRecv, this, boost::system::error_code()));
+    strand_->post(boost::bind(&Connection::OOBWait, this, false));
   }
 
   void set_timeout(int timeout_ms) {
@@ -157,6 +158,7 @@ class Connection {
   inline void OOBRecv(const boost::system::error_code &e);
   inline void OOBSend(const boost::system::error_code &e);
   inline void Timeout(const boost::system::error_code &e);
+  inline void OOBWait(bool cancel);
   inline virtual void Cleanup();
   inline void InternalClose();
   inline void InternalShutdown();
@@ -224,39 +226,19 @@ public:
   boost::shared_ptr<Decoder> decoder_;
 };
 
-void Connection::Timeout(const boost::system::error_code &e) {
-  status_.dec_out_standing();
-  if (e == boost::asio::error::operation_aborted) {
-    VLOG(2) << name() << " : " << "Timeout canceled";
-    return;
-  }
-  if (status_.closing()) {
-    VLOG(2) << name() << " : " << "Timeout but is closing";
-    InternalDestroyOrNot();
-    return;
-  }
-  VLOG(2) << name() << " : " << " Timeouted";
-  strand_->post(boost::bind(&Connection::InternalShutdown, this));
-}
-
 void Connection::OOBSend(const boost::system::error_code &e) {
+  VLOG(2) << name() << " : " << "OOBSend" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   status_.dec_out_standing();
-  if (e == boost::asio::error::operation_aborted) {
-    VLOG(2) << name() << " : " << "OOBSend cancel";
-    return;
-  }
-  if (status_.closing()) {
-    VLOG(2) << name() << " : " << "OOBSend but is closing";
+  if (status_.closing() || e) {
     InternalDestroyOrNot();
     return;
   }
   char heartbeat = kHeartBeat;
-  VLOG(2) << name() << " : " << "OOBSend";
   int n= socket_->send(boost::asio::buffer(&heartbeat, sizeof(heartbeat)),
                        boost::asio::socket_base::message_out_of_band);
   if (n != sizeof(heartbeat)) {
     VLOG(2) << name() << " : " << "OOBSend error, n:" << n;
-    strand_->post(boost::bind(&Connection::InternalClose, this));
+    InternalDestroyOrNot();
     return;
   }
   send_timer_->expires_from_now(boost::posix_time::milliseconds(timeout_));
@@ -266,44 +248,65 @@ void Connection::OOBSend(const boost::system::error_code &e) {
 }
 
 void Connection::OOBRecv(const boost::system::error_code &e) {
+  VLOG(2) << name() << " : " << "OOBRecv" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   status_.dec_out_standing();
-  if (e == boost::asio::error::operation_aborted) {
-    VLOG(2) << name() << " : " << "OOBRecv cancel";
-    return;
-  }
-  if (status_.closing()) {
-    VLOG(2) << name() << " : " << "OOBRecv but is closing";
+  VLOG(2) << name() << " : " << "OOBRecv error: " << e.message();
+  if (status_.closing() || e) {
     InternalDestroyOrNot();
     return;
   }
-  VLOG(2) << name() << " : " << "OOBRecv";
-  recv_timer_->expires_from_now(boost::posix_time::milliseconds(
-      timeout_ * kRecvDelayFactor));
-  recv_timer_->cancel();
-  status_.inc_out_standing();
-  recv_timer_->async_wait(
-      strand_->wrap(boost::bind(&Connection::Timeout, this, _1)));
   status_.inc_out_standing();
   socket_->async_receive(boost::asio::buffer(&heartbeat_, sizeof(heartbeat_)),
                          boost::asio::socket_base::message_out_of_band,
                          strand_->wrap(boost::bind(&Connection::OOBRecv, this, _1)));
 }
 
+void Connection::Timeout(const boost::system::error_code &e) {
+  VLOG(2) << name() << " : " << "Timeout" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
+  status_.dec_out_standing();
+  if (status_.closing() || (e && (e != boost::asio::error::operation_aborted))) {
+    LOG(WARNING) << name() << " : " << "Timeouted";
+    InternalDestroyOrNot();
+    return;
+  }
+}
+
+void Connection::OOBWait(bool cancel) {
+  VLOG(2) << name() << " : " << "OOBWait" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
+  // cancel.
+  if (cancel) {
+    recv_timer_->cancel();
+  }
+  recv_timer_->expires_from_now(boost::posix_time::milliseconds(
+      timeout_ * kRecvDelayFactor));
+  status_.inc_out_standing();
+  recv_timer_->async_wait(
+      strand_->wrap(boost::bind(&Connection::Timeout, this, _1)));
+  return;
+}
+
 void Connection::InternalShutdown() {
+  VLOG(2) << name() << " : " << "InternalShutdown" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (status_.closing()) {
     VLOG(2) << "Call InternalShutdown but is closing";
     return;
   }
-  status_.set_closing();
   boost::system::error_code e;
   socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, e);
   if (e) {
     VLOG(2) << "Shutdown error:" << e;
   }
+  InternalDestroyOrNot();
   strand_->post(boost::bind(&Connection::InternalClose, this));
 }
 
 void Connection::InternalDestroyOrNot() {
+  VLOG(2) << name() << " : " << "InternalDestroyOrNot" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
+  if (!status_.closing()) {
+    status_.set_closing();
+    strand_->post(boost::bind(&Connection::InternalClose, this));
+    return;
+  }
   if (status_.time_to_destroy()) {
     status_.set_cleanup_posted();
     strand_->post(boost::bind(&Connection::Cleanup, this));
@@ -311,6 +314,7 @@ void Connection::InternalDestroyOrNot() {
 }
 
 void Connection::InternalClose() {
+  VLOG(2) << name() << " : " << "InternalClose" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   socket_->close();
   recv_timer_->cancel();
   send_timer_->cancel();
@@ -318,6 +322,7 @@ void Connection::InternalClose() {
 }
 
 void Connection::Cleanup() {
+  VLOG(2) << name() << " : " << "Cleanup" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   VLOG(2) << name() << "Connection::Cleanup, num_slots: " << close_signal_.num_slots();
   close_signal_();
 }
@@ -325,24 +330,17 @@ void Connection::Cleanup() {
 template <class Decoder>
 void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
                                          size_t bytes_transferred) {
+  VLOG(2) << name() << " : " << "HandleRead" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   VLOG(2) << name() << " HandleRead, e: " << e.message() << ", bytes: "
     << bytes_transferred;
   CHECK(status_.reading());
   status_.dec_out_standing();
   if (e) {
-    if (status_.closing()) {
-      VLOG(2) << "HandleRead error, but is closing, return";
-      status_.clear_reading();
-      InternalDestroyOrNot();
-    } else {
-      VLOG(2) << "HandleRead error, is not closing, post close request";
-      status_.clear_reading();
-      strand_->post(boost::bind(&Connection::InternalClose, this));
-    }
+    status_.clear_reading();
+    InternalDestroyOrNot();
     return;
   }
 
-  // OOBRecv(boost::system::error_code());
   boost::tribool result;
   const char *start = buffer_.data();
   const char *end = start + bytes_transferred;
@@ -367,7 +365,7 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
   socket_->async_read_some(
       boost::asio::buffer(buffer_),
       strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleRead, this, _1, _2)));
-  OOBRecv(boost::system::error_code());
+  OOBWait(true);
   return;
 }
 
@@ -382,7 +380,7 @@ void ConnectionImpl<Decoder>::ScheduleRead() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleRead() {
-  VLOG(2) << name() << " : " << " InternalScheduleRead status: " << status_.status();
+  VLOG(2) << name() << " : " << "InternalScheduleRead" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (status_.closing()) {
     VLOG(2) << name() << " : " << "InternalScheduleRead but closing";
     return;
@@ -409,6 +407,7 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleWrite() {
+  VLOG(2) << name() << " : " << "InternalScheduleWrite" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (status_.closing()) {
     VLOG(2) << name() << " : " << " InternalScheduleWrite but closing";
     return;
@@ -439,18 +438,13 @@ void ConnectionImpl<Decoder>::InternalScheduleWrite() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e, size_t byte_transferred) {
+  VLOG(2) << name() << " : " << "HandleWrite" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   VLOG(2) << name() << " : " << "HandleWrite bytes: " << byte_transferred << " status: " << status_.status();
   CHECK(status_.writting());
   status_.dec_out_standing();
   if (e) {
     status_.clear_writting();
-    if (status_.closing()) {
-      VLOG(2) << name() << " : " << "Write error, is closing";
-      InternalDestroyOrNot();
-    } else {
-      VLOG(2) << name() << " : " << "Write error, is not closing, post close request";
-      strand_->post(boost::bind(&Connection::InternalClose, this));
-    }
+    InternalDestroyOrNot();
     return;
   }
   outcoming()->consume(byte_transferred);
