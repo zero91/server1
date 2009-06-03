@@ -51,14 +51,14 @@ class AcceptorHandler {
 };
 
 Server::~Server() {
-  if (is_running_) {
+  if (io_service_pool_.IsRunning()) {
     Stop();
   }
 }
 
 Server::Server(int io_service_number, int worker_threads)
   : io_service_pool_("ServerIOService", io_service_number),
-    threadpool_("ServerThreadpool", worker_threads), is_running_(false) {
+    threadpool_("ServerThreadpool", worker_threads) {
 }
 
 void Server::ReleaseAcceptor(const string &host) {
@@ -74,7 +74,6 @@ void Server::ReleaseAcceptor(const string &host) {
 void Server::Listen(const string &address,
                     const string &port,
                     Connection* connection_template) {
-  is_running_ = true;
   // Open the acceptor with the option to reuse the address (i.e. SO_REUSEADDR).
   VLOG(2) << "Server running";
   threadpool_.Start();
@@ -100,21 +99,19 @@ void Server::Listen(const string &address,
 
 void Server::Stop() {
   VLOG(2) << "Server stop";
-  {
-    boost::mutex::scoped_lock locker(channel_table_mutex_);
-    if (!is_running_) {
-      VLOG(2) << "Server already stopped";
-      return;
-    }
-    is_running_ = false;
-    for (ChannelTable::iterator it = channel_table_.begin();
-         it != channel_table_.end(); ++it) {
-      boost::shared_ptr<FullDualChannelProxy> channel = *it;
-      channel->close_signal()->disconnect_all_slots();
-      channel->Disconnect();
-    }
-    channel_table_.clear();
+  boost::mutex::scoped_lock locker(channel_table_mutex_);
+  if (!io_service_pool_.IsRunning()) {
+    VLOG(2) << "Server already stopped";
+    return;
   }
+  LOG(WARNING) << "Stop io service pool";
+  for (ChannelTable::iterator it = channel_table_.begin();
+       it != channel_table_.end(); ++it) {
+    Connection *channel = *it;
+    channel->close_signal()->disconnect_all_slots();
+    channel->Close();
+  }
+  channel_table_.clear();
   {
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
     for (AcceptorTable::iterator it = acceptor_table_.begin(); it != acceptor_table_.end(); ++it) {
@@ -125,31 +122,31 @@ void Server::Stop() {
   }
   LOG(WARNING) << "Stop thread pool";
   threadpool_.Stop();
-  LOG(WARNING) << "Stop io service pool";
-  io_service_pool_.Stop();
   LOG(WARNING) << "Server stopped";
+  io_service_pool_.Stop();
 }
 
-void Server::RemoveProxy(FullDualChannelProxy *proxy) {
+void Server::RemoveConnection(Connection *connection) {
   boost::mutex::scoped_lock locker(channel_table_mutex_);
-  channel_table_.erase(proxy->shared_from_this());
-  VLOG(1) << "Remove proxy";
+  channel_table_.erase(connection);
+  VLOG(1) << "Remove connection";
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
                           Connection *new_connection) {
   VLOG(2) << "HandleAccept";
+  boost::mutex::scoped_lock locker(channel_table_mutex_);
+  if (!io_service_pool_.IsRunning()) {
+    delete new_connection;
+    VLOG(2) << "HandleAccept but already stopped.";
+    return;
+  }
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
   new_connection->set_executor(&threadpool_);
-  FullDualChannel *full_dual_channel = dynamic_cast<FullDualChannel*>(new_connection);
-  boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(full_dual_channel));
-  proxy->close_signal()->connect(boost::bind(
-      &Server::RemoveProxy, this, proxy.get()));
-  {
-    boost::mutex::scoped_lock locker(channel_table_mutex_);
-    channel_table_.insert(proxy);
-    VLOG(2) << "Insert " << new_connection->name();
-  }
+  new_connection->close_signal()->connect(boost::bind(
+      &Server::RemoveConnection, this, new_connection));
+  channel_table_.insert(new_connection);
+  VLOG(2) << "Insert " << new_connection->name();
   new_connection->ScheduleRead();
 }

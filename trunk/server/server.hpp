@@ -54,8 +54,8 @@ private:
   typedef hash_map<string, AcceptorResource> AcceptorTable;
   void ReleaseAcceptor(const string &host);
 
-  void RemoveProxy(FullDualChannelProxy *);
-  typedef hash_set<boost::shared_ptr<FullDualChannelProxy> > ChannelTable;
+  void RemoveConnection(Connection *);
+  typedef hash_set<Connection*> ChannelTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
                     Connection *new_connection);
@@ -69,6 +69,5 @@ private:
 
   AcceptorTable acceptor_table_;
   boost::mutex acceptor_table_mutex_;
-  bool is_running_;
 };
 #endif // NET2_SERVER_HPP

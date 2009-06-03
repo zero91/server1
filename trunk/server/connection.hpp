@@ -11,7 +11,7 @@
 #define NET2_CONNECTION_HPP_
 #include "base/base.hpp"
 #include "base/executor.hpp"
-#include "base/allocator.hpp"
+#include "base/release_proxy.hpp"
 #include "glog/logging.h"
 #include "server/meta.pb.h"
 #include "protobuf/service.h"
@@ -133,18 +133,15 @@ class ConnectionStatus {
 
 class Connection {
  public:
-  Connection() : timeout_(kDefaultTimeoutMs), status_(new ConnectionStatus) {
+  Connection() : timeout_(kDefaultTimeoutMs), status_(new ConnectionStatus), release_proxy_(new ReleaseProxy) {
   }
   void Close() {
-    if (status_->closing()) {
-      VLOG(2) << name() << " Call Close but already in closing";
+    if (!strand_.get()) {
+      VLOG(2) << name() << " strand is null, may closed";
       return;
     }
-    if (!socket_.get()) {
-      VLOG(2) << name() << " socket is null, may closed";
-      return;
-    }
-    socket_->get_io_service().post(boost::bind(&Connection::InternalClose, status_, this));
+
+    strand_->post(boost::bind(&Connection::InternalClose, status_, this));
   }
 
   virtual void set_socket(boost::asio::ip::tcp::socket *socket) {
@@ -153,10 +150,16 @@ class Connection {
     socket_->set_option(keep_alive);
     boost::asio::socket_base::linger linger(false, 0);
     socket_->set_option(linger);
+    // Put the socket into non-blocking mode.
+    boost::asio::ip::tcp::socket::non_blocking_io non_blocking_io(true);
+    socket_->io_control(non_blocking_io);
+    strand_.reset(new boost::asio::io_service::strand(socket_->get_io_service()));
+    /*
     send_timer_.reset(new boost::asio::deadline_timer(socket->get_io_service()));
     recv_timer_.reset(new boost::asio::deadline_timer(socket->get_io_service()));
     OOBSend();
     OOBRecv(boost::system::error_code());
+    */
   }
 
   void set_timeout(int timeout_ms) {
@@ -192,6 +195,13 @@ class Connection {
   virtual void ScheduleWrite() = 0;
   virtual ~Connection() {
     VLOG(2) << name_ << " Distroy connection.";
+    if (send_timer_.get()) {
+      send_timer_->cancel();
+    }
+    if (recv_timer_.get()) {
+      recv_timer_->cancel();
+    }
+    release_proxy_->Invalid();
   }
  protected:
   static const char kHeartBeat = 0xb;
@@ -241,11 +251,13 @@ class Connection {
   inline void RunDone();
   virtual void HandleRead(const boost::system::error_code& e, size_t bytes_transferred) = 0;
   virtual void HandleWrite(const boost::system::error_code& e, size_t byte_transferred) = 0;
+  scoped_ptr<boost::asio::io_service::strand> strand_;
   scoped_ptr<boost::asio::ip::tcp::socket> socket_;
   Executor *executor_;
   string name_;
   boost::signals2::signal<void()> close_signal_;
   boost::shared_ptr<ConnectionStatus> status_;
+  boost::shared_ptr<ReleaseProxy> release_proxy_;
   boost::scoped_ptr<boost::asio::deadline_timer> send_timer_;
   boost::scoped_ptr<boost::asio::deadline_timer> recv_timer_;
   int timeout_;
@@ -411,7 +423,12 @@ ConnectionStatus::ScopedExit::~ScopedExit() {
           << status_->writter() << " handler: " << status_->handler() << " status: " << status_->status();
   if (status_->reader() <= 1 && status_->handler() == 0 && status_->writter() <= 1 && status_->shutdown()) {
     VLOG(2) << "Shutdown : " << connection_->name();
-    connection_->socket_->get_io_service().post(
+    if (!connection_->socket_->is_open()) {
+      VLOG(2) << connection_->name() << " socket is not openeed";
+      connection_->Shutdown();
+      return;
+    }
+    connection_->strand_->post(
         boost::bind(&Connection::Shutdown, connection_));
   }
 }
@@ -440,6 +457,14 @@ void Connection::InternalClose(boost::shared_ptr<ConnectionStatus> status, Conne
   VLOG(2) << connection->name() << " : " << "InternalClose";
   status->set_closing();
   status->set_shutdown();
+  if (connection->recv_timer_.get()) {
+    connection->recv_timer_->cancel();
+    connection->recv_timer_.reset();
+  }
+  if (connection->send_timer_.get()) {
+    connection->send_timer_->cancel();
+    connection->send_timer_.reset();
+  }
   boost::system::error_code ignored_ec;
   connection->socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
 }
@@ -450,8 +475,13 @@ void Connection::Shutdown() {
     return;
   }
   status_->set_closed();
+  if (!socket_->is_open()) {
+    VLOG(2) << name() << " socket is not openeed";
+    Cleanup();
+    return;
+  }
   socket_->close();
-  socket_->get_io_service().post(boost::bind(&Connection::Cleanup, this));
+  strand_->post(boost::bind(&Connection::Cleanup, this));
 }
 
 void Connection::Cleanup() {
@@ -463,7 +493,12 @@ void Connection::Cleanup() {
 void Connection::Run(const boost::function0<void> &f) {
   VLOG(2) << name() << " Run";
   f();
-  socket_->get_io_service().post(boost::bind(&Connection::RunDone, this));
+  if (!socket_->is_open()) {
+    VLOG(2) << name() << " socket is not openeed";
+    RunDone();
+    return;
+  }
+  strand_->post(boost::bind(&Connection::RunDone, this));
 }
 
 void Connection::RunDone() {
@@ -479,7 +514,7 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
     << bytes_transferred;
   CHECK(status_->reading());
   if (bytes_transferred > 0) {
-    OOBRecv(boost::system::error_code());
+    // OOBRecv(boost::system::error_code());
     boost::tribool result;
     const char *start = buffer_.data();
     const char *end = start + bytes_transferred;
@@ -530,11 +565,11 @@ void ConnectionImpl<Decoder>::ScheduleRead() {
     VLOG(2) << name() << " : " << "Alreading in reading status";
     return;
   }
-  if (!socket_.get()) {
-    VLOG(2) << name() << " : " << "ScheduleRead but socket is null";
+  if (!strand_.get()) {
+    VLOG(2) << name() << " : " << "ScheduleRead but strand is null";
     return;
   }
-  socket_->get_io_service().post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleRead, this));
+  strand_->post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleRead, this));
 }
 
 template <typename Decoder>
@@ -560,7 +595,7 @@ void ConnectionImpl<Decoder>::InternalScheduleRead() {
     VLOG(2) << name() << " : " << "async read some";
     status_->IncreaseReaderCounter();
     socket_->async_read_some(
-        boost::asio::buffer(buffer_), ConnectionReadHandler(name() + ".InternalScheduleRead", this, status_));
+        boost::asio::buffer(buffer_), strand_->wrap(ConnectionReadHandler(name() + ".InternalScheduleRead", this, status_)));
   } else {
     VLOG(2) << name() << " : " << "InternalScheduleRead but socket is closed";
   }
@@ -577,11 +612,11 @@ void ConnectionImpl<Decoder>::ScheduleWrite() {
     VLOG(2) << name() << " : " << "Alreading in writting status";
     return;
   }
-  if (!socket_.get()) {
-    VLOG(2) << name() << " : " << " ScheduleWrite but socket is null";
+  if (!strand_.get()) {
+    VLOG(2) << name() << " : " << " ScheduleWrite but strand is null";
     return;
   }
-  socket_->get_io_service().post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleWrite, this));
+  strand_->post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleWrite, this));
 }
 
 template <typename Decoder>
@@ -619,7 +654,9 @@ void ConnectionImpl<Decoder>::InternalScheduleWrite() {
 
   if (socket_->is_open()) {
     status_->IncreaseWritterCounter();
-    socket_->async_write_some(*outcoming(), ConnectionWriteHandler(name() + ".InternalScheduleWrite", this, status_));
+    socket_->async_write_some(
+        *outcoming(),
+        strand_->wrap(ConnectionWriteHandler(name() + ".InternalScheduleWrite", this, status_)));
   }
 }
 
@@ -632,7 +669,9 @@ void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e, si
     if (!outcoming()->empty()) {
       VLOG(2) << name() << " outcoming is not empty, size" << outcoming()->size();
       status_->IncreaseWritterCounter();
-      socket_->async_write_some(*outcoming(), ConnectionWriteHandler(name() + ".HandleWrite", this, status_));
+      socket_->async_write_some(
+          *outcoming(),
+          strand_->wrap(ConnectionWriteHandler(name() + ".HandleWrite", this, status_)));
     } else {
       VLOG(2) << name() << " outcoming is empty";
       outcoming()->clear();

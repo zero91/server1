@@ -148,7 +148,7 @@ TEST_F(FileTransferTest, Test1) {
 
 TEST_F(FileTransferTest, Test2) {
   const int kConnectionNumber = FLAGS_num_connections;
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);

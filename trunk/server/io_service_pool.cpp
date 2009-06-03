@@ -32,6 +32,7 @@ void IOServicePool::Start() {
   for (size_t i = 0; i < pool_size_; ++i) {
     boost::shared_ptr<boost::asio::io_service> io_service(new boost::asio::io_service);
     io_services_.push_back(io_service);
+    io_service->reset();
     boost::shared_ptr<boost::asio::io_service::work> worker(new boost::asio::io_service::work(*io_service));
     work_.push_back(worker);
     threadpool_.PushTask(boost::bind(&boost::asio::io_service::run, io_service));
@@ -48,12 +49,9 @@ void IOServicePool::Stop() {
   for (size_t i = 0; i < work_.size(); ++i) {
     work_[i].reset();
   }
-  boost::this_thread::yield();
-  boost::this_thread::yield();
-  boost::this_thread::yield();
-  threadpool_.Stop();
   work_.clear();
   io_services_.clear();
+  threadpool_.Stop();
 }
 
 boost::asio::io_service &IOServicePool::get_io_service() {
