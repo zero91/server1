@@ -353,6 +353,14 @@ void Connection::Timeout(const boost::system::error_code &e) {
   }
   if (status_->closing()) {
     LOG(WARNING) << name() << " : " << "in Timeout, is closing";
+    if (status_->receiving()) {
+      status_->clear_receiving();
+      status_->dec_out_standing();
+    }
+    if (status_->reading()) {
+      status_->clear_reading();
+      status_->dec_out_standing();
+    }
   }
   if (status_->closing() || timeouted) {
     LOG(WARNING) << name() << " : " << "in Timeout, try to destroy";

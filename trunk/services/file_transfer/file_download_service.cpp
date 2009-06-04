@@ -101,13 +101,6 @@ void FileDownloadServiceImpl::CloseChannel(
       }
     }
     channel_table_.erase(it);
-    if (channel_table_.empty()) {
-      is_idle = true;
-    }
-  }
-  if (is_idle) {
-    VLOG(1) << "Is Idle, remove channel";
-    threadpool_.Stop();
   }
 }
 

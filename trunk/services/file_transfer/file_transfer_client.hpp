@@ -36,6 +36,9 @@ class FileTransferClient {
   const string &dest_filename() const {
     return dest_filename_;
   }
+  void set_timeout(int timeout) {
+    timeout_ = timeout;
+  }
   static FileTransferClient *Create(
       const string &host, const string &port,
       const string &src_filename,
@@ -44,6 +47,7 @@ class FileTransferClient {
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
  private:
+  static const int kDefaultTimeOutMs = 5000;
   ThreadPool *GetThreadPool() {
     if (out_threadpool_ == NULL) {
       return &pool_;
@@ -61,7 +65,8 @@ class FileTransferClient {
                      int thread_pool_size) :
     host_(host), port_(port), src_filename_(src_filename),
     dest_filename_(dest_filename), pool_("FileTransferClientThreadPool", thread_pool_size),
-    sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK), out_threadpool_(NULL) {
+    sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK), out_threadpool_(NULL),
+    timeout_(kDefaultTimeOutMs) {
   }
   void Schedule();
   void SyncCheckBook();
@@ -94,6 +99,9 @@ class FileTransferClient {
   int sync_checkbook_failed_;
   bool finished_;
   string host_, port_, src_filename_, dest_filename_;
+  scoped_ptr<boost::asio::io_service> io_service_;
+  scoped_ptr<boost::asio::io_service::work> work_;
+  int timeout_;
   friend class TransferTask;
 };
 #endif  // FILE_TRANSFER_CLIENT_HPP_

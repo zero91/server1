@@ -25,7 +25,7 @@ class SliceStatus {
 class TransferTask : public boost::enable_shared_from_this<TransferTask> {
  public:
   static boost::shared_ptr<TransferTask> Create(FileTransferClient *file_transfer,
-      FullDualChannel *channel, int id);
+      FullDualChannel *channel, int id, int timeout, boost::asio::io_service &io_service);
 
   int id() const {
     return id_;
@@ -41,13 +41,19 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   bool IsConnected() const {
     return proxy_->IsConnected();
   }
+  ~TransferTask() {
+    VLOG(2) << "~TransferTask";
+    timer_.cancel();
+  }
  private:
   TransferTask(
       FileTransferClient *file_transfer,
-      boost::shared_ptr<FullDualChannelProxy> proxy, int id);
+      boost::shared_ptr<FullDualChannelProxy> proxy, int id, int timeout,
+      boost::asio::io_service &io_service);
   void SyncSliceDone();
   void ChannelClosed() {
     VLOG(2) << "ChannelClosed channel: " << proxy_->Name() << " tasker:" << id_ << " slice: " << (status_.get() ? status_->index() : -1);
+    timer_.cancel();
     file_transfer_->ChannelClosed(shared_from_this(), status_);
   }
   static const int kRetry = 2;
@@ -59,7 +65,9 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   RpcController controller_;
   FileTransferClient *file_transfer_;
   boost::shared_ptr<SliceStatus> status_;
+  boost::asio::deadline_timer timer_;
   int id_;
+  int timeout_;
 };
 
 void FileTransferClient::ChannelClosed(
@@ -89,7 +97,7 @@ void FileTransferClient::PushChannel(FullDualChannel *channel) {
   boost::shared_ptr<TransferTask> tasker(TransferTask::Create(
           this,
           channel,
-          id++));
+          id++, timeout_, *io_service_));
   {
     boost::mutex::scoped_lock locker(transfer_task_set_mutex_);
     transfer_task_set_.insert(tasker);
@@ -107,6 +115,12 @@ void FileTransferClient::Start() {
   if (out_threadpool_ == NULL) {
     pool_.Start();
   }
+  io_service_.reset(new boost::asio::io_service);
+  work_.reset(new boost::asio::io_service::work(*io_service_));
+  /*
+  GetThreadPool()->PushTask(boost::bind(
+      &boost::asio::io_service::run, io_service_.get()));
+  */
 }
 
 void FileTransferClient::Stop() {
@@ -118,13 +132,17 @@ void FileTransferClient::Stop() {
   for (int i = 0; i < transfer_task_set_.size(); ++i) {
     transfer_task_queue_.Push(tasker);
   }
+  io_service_->stop();
+//  io_service_.reset();
   if (out_threadpool_ == NULL) {
     pool_.Stop();
   }
   if (!finished()) {
     VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName();
     checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
+    VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName() << " Succeed";
   }
+  work_.reset();
 }
 
 FileTransferClient *FileTransferClient::Create(
@@ -347,8 +365,19 @@ void FileTransferClient::SyncSlice(
   tasker->SyncSlice();
 }
 
+static void Timeout(boost::shared_ptr<FullDualChannelProxy> proxy,
+                    const boost::system::error_code &e) {
+  if (e != boost::asio::error::operation_aborted) {
+    VLOG(2) << proxy->Name() << " : " << "TransferTask Timeouted, e: " << e.message();
+    proxy->Disconnect();
+  }
+}
+
 void TransferTask::SyncSlice() {
-  VLOG(1) << "SyncSlice: Channel: " << proxy_->Name() << " tasker: " << id() << " slice: " << status_->index();
+  VLOG(1) << "SyncSlice: Channel: " << proxy_->Name() << " tasker: " << id() << " slice: " << status_->index()
+      << "timeout: " << timeout_;
+  timer_.expires_from_now(boost::posix_time::milliseconds(timeout_));
+//  timer_.async_wait(boost::bind(&Timeout, proxy_, _1));
   controller_.Reset();
   slice_response_.Clear();
   stub_.ReceiveSlice(&controller_,
@@ -360,6 +389,7 @@ void TransferTask::SyncSlice() {
 }
 
 void TransferTask::SyncSliceDone() {
+  timer_.cancel();
   bool ret = false;
   if (controller_.Failed() || !slice_response_.succeed()) {
     VLOG(2) << "transfer id: " << id_ << " slice: "
@@ -395,17 +425,17 @@ void FileTransferClient::SyncSliceDone(
 
 TransferTask::TransferTask(
     FileTransferClient *file_transfer,
-    boost::shared_ptr<FullDualChannelProxy> proxy, int id)
-    : proxy_(proxy), stub_(proxy_.get()), id_(id), file_transfer_(file_transfer) {
+    boost::shared_ptr<FullDualChannelProxy> proxy, int id, int timeout, boost::asio::io_service &io_service)
+    : proxy_(proxy), stub_(proxy_.get()), id_(id), file_transfer_(file_transfer), timeout_(timeout), timer_(io_service) {
 }
 
 boost::shared_ptr<TransferTask> TransferTask::Create(
     FileTransferClient *file_transfer,
-    FullDualChannel *channel, int id) {
+    FullDualChannel *channel, int id, int timeout, boost::asio::io_service &io_service) {
   boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(channel));
   boost::shared_ptr<TransferTask> tasker(new TransferTask(
           file_transfer,
-          proxy, id));
+          proxy, id, timeout, io_service));
   proxy->close_signal()->connect(
       FullDualChannel::CloseSignal::slot_type(
           &TransferTask::ChannelClosed, tasker.get()).track(tasker));
