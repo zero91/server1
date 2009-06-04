@@ -169,6 +169,7 @@ TEST_F(FileTransferTest, Test2) {
   local_file_notify->GetSignal(kTestFile, local_filename)->connect(notifier->notify_handler());
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
+    controller.Reset();
     const string name("FileDownloadTest2Client." + boost::lexical_cast<string>(i));
     boost::shared_ptr<ClientConnection> r(new ClientConnection(name, FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
@@ -182,6 +183,7 @@ TEST_F(FileTransferTest, Test2) {
         &controller,
         &request, &response, NULL);
     controller.Wait();
+    VLOG(2) << "Register " << i;
   }
   for (int i = 0; i < connections.size(); ++i) {
     if (i % 2 == 1) {
