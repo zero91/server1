@@ -108,6 +108,7 @@ class ListenTest : public testing::Test {
     server_->Listen(FLAGS_server, FLAGS_port, server_connection_.get());
     CHECK(!client_connection_->IsConnected());
     CHECK(client_connection_->Connect());
+    aborted_ = 0;
   }
 
   void TearDown() {
@@ -133,7 +134,13 @@ class ListenTest : public testing::Test {
       boost::shared_ptr<Hello::EchoResponse> response) {
     VLOG(2) << "CallEcho response: " << response->text();
     VLOG(2) << "ClientCallMultiThreadDone called";
-    CHECK_EQ("server->" + request->question(), response->text());
+    if (!controller->Failed()) {
+      CHECK_EQ("server->" + request->question(), response->text());
+    } else {
+      CHECK_EQ(controller->ErrorText(), "Abort");
+      pcqueue_->Push(true);
+      ++aborted_;
+    }
   }
 
   void ClientThreadRun(boost::shared_ptr<Hello::EchoService2::Stub> client_stub) {
@@ -158,6 +165,7 @@ class ListenTest : public testing::Test {
   boost::shared_ptr<Hello::EchoService2::Stub> client_stub_;
   boost::shared_ptr<PCQueue<bool> > pcqueue_;
   boost::scoped_ptr<EchoService2Impl> echo_service_;
+  int aborted_;
 };
 TEST_F(ListenTest, Test1) {
   Hello::EchoRequest request;
@@ -192,7 +200,7 @@ TEST_F(ListenTest, MultiThreadTest1) {
   }
   client_connection_->Disconnect();
   VLOG(2) << "Close client connection";
-  CHECK_EQ(echo_service_->called(), FLAGS_num_threads);
+  CHECK_EQ(aborted_ + echo_service_->called(), FLAGS_num_threads);
 }
 
 TEST_F(ListenTest, MultiThreadMultConnectionTest1) {

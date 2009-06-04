@@ -97,14 +97,7 @@ class Connection {
  public:
   Connection() : timeout_(kDefaultTimeoutMs) {
   }
-  void Close() {
-    if (!strand_.get()) {
-      VLOG(2) << name() << " strand is null, may closed";
-      return;
-    }
-    strand_->post(boost::bind(&Connection::InternalShutdown, this));
-  }
-
+  inline void Close();
   virtual void set_socket(boost::asio::ip::tcp::socket *socket) {
     socket_.reset(socket);
     boost::asio::socket_base::keep_alive keep_alive(true);
@@ -167,7 +160,6 @@ class Connection {
   virtual void HandleWrite(const boost::system::error_code& e, size_t byte_transferred) = 0;
   scoped_ptr<boost::asio::io_service::strand> strand_;
   scoped_ptr<boost::asio::ip::tcp::socket> socket_;
-  Executor *executor_;
   string name_;
   boost::signals2::signal<void()> close_signal_;
   ConnectionStatus status_;
@@ -175,6 +167,7 @@ class Connection {
   boost::scoped_ptr<boost::asio::deadline_timer> recv_timer_;
   int timeout_;
   char heartbeat_;
+  boost::mutex closing_mutex_;
 };
 
 // Represents a single Connection from a client.
@@ -225,6 +218,16 @@ public:
   SharedConstBuffers duplex_[2];
   boost::shared_ptr<Decoder> decoder_;
 };
+
+void Connection::Close() {
+  boost::mutex::scoped_lock lock(closing_mutex_);
+  if (status_.closing()) {
+    VLOG(2) << name() << " call Close but is closing";
+    return;
+  }
+  status_.inc_out_standing();
+  strand_->post(boost::bind(&Connection::InternalShutdown, this));
+}
 
 void Connection::OOBSend(const boost::system::error_code &e) {
   VLOG(2) << name() << " : " << "OOBSend" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
@@ -286,6 +289,7 @@ void Connection::OOBWait(bool cancel) {
 }
 
 void Connection::InternalShutdown() {
+  status_.dec_out_standing();
   VLOG(2) << name() << " : " << "InternalShutdown" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (status_.closing()) {
     VLOG(2) << "Call InternalShutdown but is closing";
@@ -297,12 +301,12 @@ void Connection::InternalShutdown() {
     VLOG(2) << "Shutdown error:" << e;
   }
   InternalDestroyOrNot();
-  strand_->post(boost::bind(&Connection::InternalClose, this));
 }
 
 void Connection::InternalDestroyOrNot() {
   VLOG(2) << name() << " : " << "InternalDestroyOrNot" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (!status_.closing()) {
+    boost::mutex::scoped_lock lock(closing_mutex_);
     status_.set_closing();
     strand_->post(boost::bind(&Connection::InternalClose, this));
     return;
@@ -371,17 +375,21 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleRead() {
-  if (!strand_.get()) {
-    VLOG(2) << name() << " : " << "ScheduleRead but strand is null";
+  boost::mutex::scoped_lock locker(closing_mutex_);
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << "ScheduleRead but strand is closing";
     return;
   }
+  status_.inc_out_standing();
   strand_->post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleRead, this));
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleRead() {
+  status_.dec_out_standing();
   VLOG(2) << name() << " : " << "InternalScheduleRead" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (status_.closing()) {
+    InternalDestroyOrNot();
     VLOG(2) << name() << " : " << "InternalScheduleRead but closing";
     return;
   }
@@ -398,17 +406,21 @@ void ConnectionImpl<Decoder>::InternalScheduleRead() {
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::ScheduleWrite() {
-  if (!strand_.get()) {
-    VLOG(2) << name() << " : " << " ScheduleWrite but strand is null";
+  boost::mutex::scoped_lock locker(closing_mutex_);
+  if (status_.closing()) {
+    VLOG(2) << name() << " : " << "ScheduleWrite but is closing";
     return;
   }
+  status_.inc_out_standing();
   strand_->post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleWrite, this));
 }
 
 template <typename Decoder>
 void ConnectionImpl<Decoder>::InternalScheduleWrite() {
+  status_.dec_out_standing();
   VLOG(2) << name() << " : " << "InternalScheduleWrite" << " status: " << status_.status() << " out_standing: " << status_.out_standing();
   if (status_.closing()) {
+    InternalDestroyOrNot();
     VLOG(2) << name() << " : " << " InternalScheduleWrite but closing";
     return;
   }

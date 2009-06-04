@@ -58,7 +58,8 @@ Server::~Server() {
 
 Server::Server(int io_service_number, int worker_threads)
   : io_service_pool_("ServerIOService",
-                     io_service_number, worker_threads) {
+                     io_service_number, worker_threads),
+    notifier_(new Notifier("ServerNotifier", 0)) {
 }
 
 void Server::ReleaseAcceptor(const string &host) {
@@ -98,18 +99,19 @@ void Server::Listen(const string &address,
 
 void Server::Stop() {
   VLOG(2) << "Server stop";
-  boost::mutex::scoped_lock locker(channel_table_mutex_);
+  stop_mutex_.lock();
   if (!io_service_pool_.IsRunning()) {
     VLOG(2) << "Server already stopped";
+    stop_mutex_.unlock();
     return;
   }
-  for (ChannelTable::iterator it = channel_table_.begin();
-       it != channel_table_.end(); ++it) {
-    Connection *channel = *it;
-    channel->close_signal()->disconnect_all_slots();
-    channel->Close();
+  {
+    boost::mutex::scoped_lock locker(channel_table_mutex_);
+    for (ChannelTable::iterator it = channel_table_.begin();
+         it != channel_table_.end(); ++it) {
+      (*it)->Close();
+    }
   }
-  channel_table_.clear();
   {
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
     for (AcceptorTable::iterator it = acceptor_table_.begin(); it != acceptor_table_.end(); ++it) {
@@ -120,29 +122,38 @@ void Server::Stop() {
   }
   LOG(WARNING) << "Stop io service pool";
   io_service_pool_.Stop();
+  stop_mutex_.unlock();
+
+  // All channel had been flushed.
+  notifier_->Wait();
+  CHECK(channel_table_.empty());
   LOG(WARNING) << "Server stopped";
 }
 
 void Server::RemoveConnection(Connection *connection) {
   boost::mutex::scoped_lock locker(channel_table_mutex_);
   channel_table_.erase(connection);
+  notifier_->Dec(1);
   VLOG(1) << "Remove connection";
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
                           Connection *new_connection) {
   VLOG(2) << "HandleAccept";
-  boost::mutex::scoped_lock locker(channel_table_mutex_);
+  stop_mutex_.lock_shared();
   if (!io_service_pool_.IsRunning()) {
     delete new_connection;
+    stop_mutex_.unlock_shared();
     VLOG(2) << "HandleAccept but already stopped.";
     return;
   }
+  stop_mutex_.unlock_shared();
   boost::asio::io_service &io_service = io_service_pool_.get_io_service();
   // The socket ownership transfer to Connection.
   new_connection->close_signal()->connect(boost::bind(
       &Server::RemoveConnection, this, new_connection));
   channel_table_.insert(new_connection);
+  notifier_->Inc(1);
   VLOG(2) << "Insert " << new_connection->name();
   new_connection->ScheduleRead();
 }

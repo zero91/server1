@@ -27,7 +27,7 @@ class NotifierTest : public testing::Test {
   }
  protected:
   static const int kPoolSize = 100;
-  static const int kItemSize = 10000;
+  static const int kItemSize = 20;
 };
 
 TEST_F(NotifierTest, TestWait) {
@@ -95,6 +95,38 @@ TEST_F(NotifierTest, TestDelete) {
     EXPECT_EQ(v[i], 0);
   }
   p1.Stop();
+}
+
+TEST_F(NotifierTest, TestWaitNumber) {
+  ThreadPool p1("TestWait", kPoolSize);
+  ThreadPool p2("TestNotifier", kPoolSize);
+  const int kInitialNumber = 100;
+  vector<boost::shared_ptr<Notifier> > ns;
+  vector<int> v;
+  v.resize(kItemSize, 0);
+  p1.Start();
+  for (int k = 0; k < kItemSize; ++k) {
+    boost::shared_ptr<Notifier> n(new Notifier("Test", kInitialNumber));
+    const boost::function0<bool> h = boost::bind(&Notifier::Wait, n);
+    p1.PushTask(boost::bind(
+        &NotifierTest::Wait, this,
+        h, &v[k]));
+    ns.push_back(n);
+  }
+  for (int i = 0; i < kItemSize; ++i) {
+    EXPECT_EQ(v[i], 0);
+  }
+  p2.Start();
+  for (int i = 0; i < kInitialNumber; ++i) {
+    for (int k = 0; k < kItemSize; ++k) {
+      p2.PushTask(ns[k]->notify_handler());
+    }
+  }
+  p2.Stop();
+  p1.Stop();
+  for (int i = 0; i < kItemSize; ++i) {
+    EXPECT_EQ(v[i], 0xbeef);
+  }
 }
 
 int main(int argc, char **argv) {

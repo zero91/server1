@@ -239,7 +239,10 @@ static void CallMethodCallback(
       controller);
   if (decoder.get() == NULL) {
     VLOG(2) << "NULL Decoder, may call from destructor";
-    if (rpc_controller) rpc_controller->Notify();
+    if (rpc_controller) {
+      rpc_controller->SetFailed("Abort");
+      rpc_controller->Notify();
+    }
     return;
   }
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
