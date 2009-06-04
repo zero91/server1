@@ -20,7 +20,7 @@ class IOServicePoolTest : public testing::Test {
   }
   void Inc2(int *cnt) {
     VLOG(0) << "Inc2 call, cnt: " << *cnt;
-    sleep(rand() % 10 + 1);
+    sleep(rand() % 3 + 1);
     *cnt = 0xbeef;
   }
  protected:
@@ -52,7 +52,7 @@ TEST_F(IOServicePoolTest, Test1) {
 
 TEST_F(IOServicePoolTest, Test2) {
   IOServicePool p("Test", kPoolSize, kThreadSize);
-  for (int k = 0; k < 1000; ++k) {
+  for (int k = 0; k < 100; ++k) {
     p.Start();
     int item_size = kPoolSize * (rand() % 10 + 1);
     VLOG(2) << "item size: " << item_size;

@@ -60,12 +60,17 @@ class FullDualChannelProxy : virtual public FullDualChannel, public boost::enabl
     mutex_.unlock_shared();
     return name;
   }
+  virtual ~FullDualChannelProxy() {
+    close_signal_();
+    close_signal_.disconnect_all_slots();
+  }
  private:
   void CloseChannel() {
     mutex_.lock();
     channel_ = NULL;
     mutex_.unlock();
     close_signal_();
+    close_signal_.disconnect_all_slots();
   }
   FullDualChannelProxy(FullDualChannel *channel) : channel_(channel) {
   }

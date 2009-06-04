@@ -22,11 +22,14 @@ class AcceptorHandler;
 // The top-level class of the Server.
 class Server
   : private boost::noncopyable {
+private:
+  static const int kDefaultDrainTimeout = LONG_MAX;
 public:
   /// Construct the Server to listen on the specified TCP address and port, and
   /// serve up files from the given directory.
   explicit Server(int io_service_number,
-                  int worker_threads);
+                  int worker_threads,
+                  int drain_timeout = kDefaultDrainTimeout);
   ~Server();
 
   void Listen(const string &address, const string &port,
@@ -57,6 +60,7 @@ private:
   typedef hash_set<Connection*> ChannelTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
+                    boost::asio::ip::tcp::socket *socket,
                     Connection *new_connection);
 
   // The pool of io_service objects used to perform asynchronous operations.
@@ -70,5 +74,6 @@ private:
   boost::mutex acceptor_table_mutex_;
 
   boost::shared_mutex stop_mutex_;
+  int drain_timeout_;
 };
 #endif // NET2_SERVER_HPP

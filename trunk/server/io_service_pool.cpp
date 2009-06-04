@@ -28,7 +28,6 @@ void IOServicePool::Start() {
     LOG(WARNING) << "IOServicePool already running";
     return;
   }
-  work_.clear();
   if (io_services_.empty()) {
     for (size_t i = 0; i < num_io_services_; ++i) {
       boost::shared_ptr<boost::asio::io_service> io_service(new boost::asio::io_service);
@@ -41,6 +40,7 @@ void IOServicePool::Start() {
   }
   // Give all the io_services work to do so that their run() functions will not
   // exit until they are explicitly stopped.
+  work_.clear();
   work_.reserve(num_threads_);
   int k = 0;
   for (int i = 0; i < num_threads_; ++i) {
@@ -59,11 +59,11 @@ void IOServicePool::Stop() {
     LOG(WARNING) << "IOServicePool already stop";
     return;
   }
-  for (size_t i = 0; i < work_.size(); ++i) {
-    work_[i].reset();
+  for (size_t i = 0; i < io_services_.size(); ++i) {
+    io_services_[i]->stop();
   }
-  work_.clear();
   threadpool_.Stop();
+  work_.clear();
 }
 
 boost::asio::io_service &IOServicePool::get_io_service() {
