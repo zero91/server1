@@ -65,7 +65,7 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   RpcController controller_;
   FileTransferClient *file_transfer_;
   boost::shared_ptr<SliceStatus> status_;
-  boost::asio::deadline_timer timer_;
+  Timer timer_;
   int id_;
   int timeout_;
 };
@@ -130,9 +130,7 @@ void FileTransferClient::Stop() {
   for (int i = 0; i < transfer_task_set_.size(); ++i) {
     transfer_task_queue_.Push(tasker);
   }
-  io_service_->poll();
-  io_service_->stop();
-//  io_service_.reset();
+  work_.reset();
   if (out_threadpool_ == NULL) {
     pool_.Stop();
   }
@@ -141,7 +139,6 @@ void FileTransferClient::Stop() {
     checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
     VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName() << " Succeed";
   }
-  work_.reset();
 }
 
 FileTransferClient *FileTransferClient::Create(

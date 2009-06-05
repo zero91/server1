@@ -17,11 +17,12 @@
 #include "boost/thread.hpp"
 #include "server/shared_const_buffers.hpp"
 #include "boost/signals2/signal.hpp"
-#include "base/release_proxy.hpp"
+#include "server/timer.hpp"
+#define ConnTrace VLOG(2) << name() << " : " << __func__ << " status: " << status_->status() << " "
 class Connection;
 class ConnectionStatus {
  public:
-  ConnectionStatus() : status_(0), out_standing_(0) {
+  ConnectionStatus() : status_(0) {
   }
   bool reading() const {
     return status_ & READING;
@@ -58,62 +59,22 @@ class ConnectionStatus {
   int status() const {
     return status_;
   }
-
-  void inc_out_standing() {
-    ++out_standing_;
-  }
-
-  void dec_out_standing() {
-    --out_standing_;
-  }
-
-  int out_standing() const {
-    return out_standing_;
-  }
-
-  bool cleanup_posted() const {
-    return status_ & CLEANUP_POSTED;
-  }
-
-  void set_receiving() {
-    status_ |= RECEIVING;
-  }
-
-  bool receiving() const {
-    return status_ & RECEIVING;
-  }
-
-  void clear_receiving() {
-    status_ &= ~RECEIVING;
-  }
-
-  void set_cleanup_posted() {
-    status_ |= CLEANUP_POSTED;
-  }
-
-  bool time_to_destroy() {
-    return out_standing_ == 0 && closing() && !cleanup_posted();
-  }
  private:
   enum InternalConnectionStatus {
     IDLE = 0x0,
     READING = 0x01,
     WRITTING = 0x01 << 1,
     CLOSING = 0x01 << 2,
-    CLEANUP_POSTED = 0x01 << 3,
-    RECEIVING = 0x01 << 4,
   };
   int status_;
-  int out_standing_;
 };
 
-class OOBRecvHandler;
-class ReadHandler;
 class Connection {
  public:
-  Connection() : timeout_(kDefaultTimeoutMs), status_(new ConnectionStatus) {
+  Connection() : timeout_(kDefaultTimeoutMs), incoming_index_(0), status_(new ConnectionStatus), mutex_(new boost::shared_mutex) {
   }
   inline void Close();
+
   inline void set_socket(boost::asio::ip::tcp::socket *socket);
 
   void set_timeout(int timeout_ms) {
@@ -135,60 +96,29 @@ class Connection {
   virtual bool IsConnected() const {
     return socket_ && socket_->is_open();
   }
-
   virtual Connection* Clone() = 0;
-  virtual void ScheduleRead() = 0;
-  virtual void ScheduleWrite() = 0;
+  inline void ScheduleRead();
+  inline void ScheduleWrite();
+  template <typename T>
+  // The push will take the ownership of the data
+  inline void PushData(const T &data) {
+    boost::mutex::scoped_lock locker(incoming_mutex_);
+    return InternalPushData(data);
+  }
   virtual ~Connection() {
+    CHECK(!IsConnected());
   }
  protected:
   static const char kHeartBeat = 0xb;
   static const int kDefaultTimeoutMs = 30000;
   static const int kRecvDelayFactor = 2;
-  inline void OOBRecv(const boost::system::error_code &e, int n);
-  inline void OOBSend(const boost::system::error_code &e);
-  inline void Timeout(const boost::system::error_code &e);
-  inline void OOBWait();
-  inline virtual void Cleanup();
-  inline void InternalClose();
-  inline void InternalShutdown();
-  inline void InternalDestroyOrNot();
-  virtual void HandleRead(const boost::system::error_code& e, size_t bytes_transferred) = 0;
-  virtual void HandleWrite(const boost::system::error_code& e, size_t byte_transferred) = 0;
-  scoped_ptr<boost::asio::io_service::strand> strand_;
-  scoped_ptr<boost::asio::ip::tcp::socket> socket_;
-  string name_;
-  boost::signals2::signal<void()> close_signal_;
-  boost::shared_ptr<ConnectionStatus> status_;
-  boost::scoped_ptr<boost::asio::deadline_timer> send_timer_;
-  boost::scoped_ptr<boost::asio::deadline_timer> recv_timer_;
-  int timeout_;
-  char heartbeat_;
-  boost::mutex closing_mutex_;
-  friend class OOBRecvHandler;
-  friend class ReadHandler;
-};
 
-// Represents a single Connection from a client.
-// The Handler::Handle method should be multi thread safe.
-template <typename Decoder>
-class ConnectionImpl : virtual public Connection {
-public:
-  ConnectionImpl() : Connection(), incoming_index_(0), decoder_(new Decoder) {
+  template <class T> void InternalPushData(const T &data);
+
+  void InternalClose() {
+    Destroy(true);
   }
-  Connection* Clone()  = 0;
-  // ScheduleRead the first asynchronous operation for the Connection.
-  void ScheduleRead();
 
-  void ScheduleWrite();
-
-  template <typename T>
-  // The push will take the ownership of the data
-  void PushData(const T &data) {
-    boost::mutex::scoped_lock locker(incoming_mutex_);
-    return InternalPushData(data);
-  }
- protected:
   SharedConstBuffers *incoming() {
     return &duplex_[incoming_index_];
   }
@@ -201,59 +131,127 @@ public:
     // Switch the working vector.
     incoming_index_ = 1 - incoming_index_;
   }
-  void InternalScheduleRead();
-  void InternalScheduleWrite();
-  template <class T> void InternalPushData(const T &data);
-  virtual void Handle(boost::shared_ptr<const Decoder> decoder) = 0;
-  void HandleRead(const boost::system::error_code& e, size_t bytes_transferred);
-  virtual void HandleWrite(const boost::system::error_code& e, size_t byte_transferred);
+  inline void OOBRecv(const boost::system::error_code &e, size_t n);
+  inline void OOBSend(const boost::system::error_code &e);
+  inline void Timeout(const boost::system::error_code &e);
+  inline void OOBWait();
+  inline void HandleRead(const boost::system::error_code& e, size_t bytes_transferred);
+  inline void HandleWrite(const boost::system::error_code& e, size_t byte_transferred);
+  inline void InternalScheduleRead();
+  inline void InternalScheduleWrite();
+  inline void Destroy(bool destroy);
+  virtual void Decode(size_t byte_transferred) = 0;
+
+  scoped_ptr<boost::asio::ip::tcp::socket> socket_;
+  scoped_ptr<boost::asio::io_service::strand> strand_;
+  string name_;
+  boost::signals2::signal<void()> close_signal_;
+  boost::shared_ptr<ConnectionStatus> status_;
+  boost::scoped_ptr<boost::asio::deadline_timer> send_timer_;
+  boost::scoped_ptr<boost::asio::deadline_timer> recv_timer_;
+
+  int timeout_;
+  char heartbeat_;
+
+  boost::shared_ptr<boost::shared_mutex> mutex_;
+
   static const int kBufferSize = 8192;
   typedef boost::array<char, kBufferSize> Buffer;
-
   Buffer buffer_;
 
   int incoming_index_;
-  boost::mutex incoming_mutex_;
   SharedConstBuffers duplex_[2];
-  boost::shared_ptr<Decoder> decoder_;
+  boost::mutex incoming_mutex_;
 };
 
-class OOBRecvHandler {
+class ExecuteHandler {
  public:
-  OOBRecvHandler(boost::shared_ptr<ConnectionStatus> status, Connection *connection)
-    : status_(status), connection_(connection) {
+  ExecuteHandler(boost::shared_ptr<ConnectionStatus> status,
+               boost::shared_ptr<boost::shared_mutex> mutex,
+               Connection *connection,
+               void (Connection::*member)())
+    : status_(status), mutex_(mutex), connection_(connection), member_(member) {
+  }
+  void operator()() {
+    mutex_->lock_shared();
+    if (!status_->closing()) {
+      (connection_->*member_)();
     }
-  void operator()(const boost::system::error_code &e, int n) {
-    if (!status_->receiving()) {
-      VLOG(2) << "OOBRecv but not in receiving, return, e:" << e.message();
-      return;
-    }
-    connection_->OOBRecv(e, n);
+    mutex_->unlock_shared();
   }
  private:
   boost::shared_ptr<ConnectionStatus> status_;
+  boost::shared_ptr<boost::shared_mutex> mutex_;
   Connection *connection_;
+  void (Connection::*member_)();
+};
+
+class WaitHandler {
+ public:
+  WaitHandler(boost::shared_ptr<ConnectionStatus> status,
+            boost::shared_ptr<boost::shared_mutex> mutex,
+            Connection *connection,
+            void (Connection::*member)(const boost::system::error_code&))
+    : status_(status), mutex_(mutex), connection_(connection), member_(member) {
+  }
+  void operator()(const boost::system::error_code& e) {
+    mutex_->lock_shared();
+    if (!status_->closing()) {
+      (connection_->*member_)(e);
+    }
+    mutex_->unlock_shared();
+  }
+ private:
+  boost::shared_ptr<ConnectionStatus> status_;
+  boost::shared_ptr<boost::shared_mutex> mutex_;
+  Connection *connection_;
+  void (Connection::*member_)(const boost::system::error_code&);
 };
 
 class ReadHandler {
  public:
-  ReadHandler(boost::shared_ptr<ConnectionStatus> status, Connection *connection)
-    : status_(status), connection_(connection) {
+  ReadHandler(boost::shared_ptr<ConnectionStatus> status,
+               boost::shared_ptr<boost::shared_mutex> mutex,
+               Connection *connection,
+               void (Connection::*member)(const boost::system::error_code &, size_t))
+    : status_(status), mutex_(mutex), connection_(connection), member_(member) {
+  }
+  void operator()(const boost::system::error_code &e, size_t n) {
+    mutex_->lock_shared();
+    if (!status_->closing()) {
+      (connection_->*member_)(e, n);
     }
-  void operator()(const boost::system::error_code &e, int n) {
-    if (!status_->reading()) {
-      VLOG(2) << "ReadHandler but not in reading, return, e:" << e.message();
-      return;
-    }
-    connection_->HandleRead(e, n);
+    mutex_->unlock_shared();
   }
  private:
   boost::shared_ptr<ConnectionStatus> status_;
+  boost::shared_ptr<boost::shared_mutex> mutex_;
   Connection *connection_;
+  void (Connection::*member_)(const boost::system::error_code&, size_t);
+};
+typedef ReadHandler WriteHandler;
+
+// Represents a single Connection from a client.
+// The Handler::Handle method should be multi thread safe.
+template <typename Decoder>
+class ConnectionImpl : virtual public Connection {
+public:
+  ConnectionImpl() : Connection(),  decoder_(new Decoder) {
+  }
+protected:
+  void Decode(size_t bytes_transferred);
+  virtual void Handle(boost::shared_ptr<const Decoder> decoder) = 0;
+  boost::shared_ptr<Decoder> decoder_;
 };
 
-
 void Connection::set_socket(boost::asio::ip::tcp::socket *socket) {
+  mutex_->lock();
+  if (socket_.get()) {
+    ConnTrace << "Already set socket";
+    mutex_->unlock();
+    return;
+  }
+  ConnTrace;
   socket_.reset(socket);
   boost::asio::socket_base::keep_alive keep_alive(true);
   socket_->set_option(keep_alive);
@@ -263,213 +261,177 @@ void Connection::set_socket(boost::asio::ip::tcp::socket *socket) {
   boost::asio::ip::tcp::socket::non_blocking_io non_blocking_io(true);
   socket_->io_control(non_blocking_io);
   strand_.reset(new boost::asio::io_service::strand(socket_->get_io_service()));
-  CHECK_EQ(status_->out_standing(), 0);
   send_timer_.reset(new boost::asio::deadline_timer(socket->get_io_service()));
   recv_timer_.reset(new boost::asio::deadline_timer(socket->get_io_service()));
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " "status: " << status_->status() << " out_standing: " << status_->out_standing();
-  strand_->post(boost::bind(&Connection::OOBSend, this, boost::system::error_code()));
-  VLOG(2) << name() << " : " "status: " << status_->status() << " out_standing: " << status_->out_standing();
-  status_->inc_out_standing();
-  status_->set_receiving();
-  strand_->post(boost::bind(&Connection::OOBRecv, this, boost::system::error_code(), 0));
+  OOBSend(boost::system::error_code());
+  OOBRecv(boost::system::error_code(), 0);
+  mutex_->unlock();
 }
 
 void Connection::Close() {
-  boost::mutex::scoped_lock lock(closing_mutex_);
-  if (status_->closing()) {
-    VLOG(2) << name() << " call Close but is closing";
+  mutex_->lock();
+  if (!IsConnected()) {
+    ConnTrace << "Already closed";
     return;
   }
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " "status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "Call close";
-  strand_->post(boost::bind(&Connection::InternalShutdown, this));
+  Destroy(true);
+//  strand_->post(ExecuteHandler(status_, mutex_, this, &Connection::InternalDestroy));
+  mutex_->unlock();
+}
+
+void Connection::Destroy(bool destroy) {
+  {
+    if (status_->closing()) {
+      ConnTrace << "Already closing";
+      return;
+    }
+    status_->set_closing();
+    if (recv_timer_.get()) {
+      recv_timer_->cancel();
+      recv_timer_.reset();
+    }
+    if (send_timer_.get()) {
+      send_timer_->cancel();
+      send_timer_.reset();
+    }
+    if (socket_.get()) {
+      socket_->close();
+      socket_.reset();
+    }
+  }
+  close_signal_();
+  close_signal_.disconnect_all_slots();
+  if (destroy) {
+    delete this;
+  }
 }
 
 void Connection::OOBSend(const boost::system::error_code &e) {
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " "status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (status_->closing() || e) {
-    InternalDestroyOrNot();
-    return;
-  }
   char heartbeat = kHeartBeat;
   int n= socket_->send(boost::asio::buffer(&heartbeat, sizeof(heartbeat)),
                        boost::asio::socket_base::message_out_of_band);
   if (n != sizeof(heartbeat)) {
     VLOG(2) << name() << " : " << "OOBSend error, n:" << n;
-    InternalDestroyOrNot();
+    Destroy(true);
     return;
   }
   send_timer_->expires_from_now(boost::posix_time::milliseconds(timeout_));
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " "status: " << status_->status() << " out_standing: " << status_->out_standing();
-  send_timer_->async_wait(
-      strand_->wrap(boost::bind(&Connection::OOBSend, this, _1)));
+  send_timer_->async_wait(strand_->wrap(WaitHandler(status_, mutex_, this, &Connection::OOBSend)));
 }
-void Connection::OOBRecv(const boost::system::error_code &e, int n) {
-  if (!status_->receiving()) {
-    VLOG(2) << "OOBRecv but not in receiving, return";
-    return;
-  }
-  VLOG(2) << name() << " : " << "OOBRecv" << " status: " << status_->status() << " out_standing: " << status_->out_standing() << " e: " << e.message();
-  status_->clear_receiving();
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
+
+void Connection::OOBRecv(const boost::system::error_code &e, size_t n) {
   if (e) {
-    VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  }
-  if (status_->closing() || e) {
-    InternalDestroyOrNot();
-    if (status_->closing() && status_->reading() && e) {
-      VLOG(2) << "closing and reading error, decreasing the outstanding";
-      status_->dec_out_standing();
-      status_->clear_reading();
-      VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-      InternalDestroyOrNot();
-    }
+    Destroy(true);
     return;
   }
+
   OOBWait();
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  status_->set_receiving();
+
   socket_->async_receive(boost::asio::buffer(&heartbeat_, sizeof(heartbeat_)),
                          boost::asio::socket_base::message_out_of_band,
-                         strand_->wrap(OOBRecvHandler(status_, this)));
+                         strand_->wrap(ReadHandler::ReadHandler(status_, mutex_, this, &Connection::OOBRecv)));
 }
 
 void Connection::Timeout(const boost::system::error_code &e) {
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "Timeout" << " status: " << status_->status() << " out_standing: " << status_->out_standing()
-          << " e: " << e.message();
-  bool timeouted = false;
   if (e != boost::asio::error::operation_aborted) {
     LOG(WARNING) << name() << " : " << "Timeouted";
-    timeouted = true;
-  }
-  if (status_->closing()) {
-    LOG(WARNING) << name() << " : " << "in Timeout, is closing";
-    if (status_->receiving()) {
-      status_->clear_receiving();
-      status_->dec_out_standing();
-    }
-    if (status_->reading()) {
-      status_->clear_reading();
-      status_->dec_out_standing();
-    }
-  }
-  if (status_->closing() || timeouted) {
-    LOG(WARNING) << name() << " : " << "in Timeout, try to destroy";
-    send_timer_->cancel();
-    InternalDestroyOrNot();
-    return;
+    Destroy(true);
   }
 }
 
 void Connection::OOBWait() {
-  VLOG(2) << name() << " : " << "OOBWait" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  // cancel.
   recv_timer_->expires_from_now(boost::posix_time::milliseconds(
       timeout_ * kRecvDelayFactor));
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  recv_timer_->async_wait(
-      strand_->wrap(boost::bind(&Connection::Timeout, this, _1)));
+  recv_timer_->async_wait(strand_->wrap(WaitHandler(status_, mutex_, this, &Connection::Timeout)));
+}
+
+void Connection::HandleRead(const boost::system::error_code& e,
+                            size_t bytes_transferred) {
+  CHECK(status_->reading());
+  ConnTrace<< " e:" << e.message() << " bytes: " << bytes_transferred;
+  if (e) {
+    Destroy(true);
+    return;
+  }
+  Decode(bytes_transferred);
+  socket_->async_read_some(
+      boost::asio::buffer(buffer_),
+      strand_->wrap(ReadHandler(status_, mutex_, this, &Connection::HandleRead)));
+  OOBWait();
   return;
 }
 
-void Connection::InternalShutdown() {
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "InternalShutdown";
-  if (status_->closing()) {
-    VLOG(2) << "Call InternalShutdown but is closing";
+void Connection::ScheduleRead() {
+  mutex_->lock_shared();
+  if (status_->reading()) {
+    ConnTrace << "ScheduleRead but already reading";
+    mutex_->unlock_shared();
     return;
   }
-  boost::system::error_code e;
-  socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, e);
-  socket_->close();
-  if (e) {
-    VLOG(2) << "Shutdown error:" << e;
-  }
-  InternalDestroyOrNot();
+  status_->set_reading();
+  socket_->async_read_some(
+      boost::asio::buffer(buffer_),
+      strand_->wrap(ReadHandler(status_, mutex_, this, &Connection::HandleRead)));
+  mutex_->unlock_shared();
 }
 
-void Connection::InternalDestroyOrNot() {
-  VLOG(2) << name() << " : " << "InternalDestroyOrNot" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (!status_->closing()) {
-    boost::mutex::scoped_lock lock(closing_mutex_);
-    status_->set_closing();
-    recv_timer_->cancel();
-    send_timer_->cancel();
-    status_->inc_out_standing();
-    VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-    strand_->post(boost::bind(&Connection::InternalClose, this));
+void Connection::ScheduleWrite() {
+  mutex_->lock_shared();
+  ConnTrace;
+  if (status_->writting()) {
+    ConnTrace << " : " << "ScheduleWrite but already writting";
+    mutex_->unlock_shared();
     return;
   }
-  if (status_->time_to_destroy()) {
-    status_->set_cleanup_posted();
-    strand_->post(boost::bind(&Connection::Cleanup, this));
-  }
-}
-
-void Connection::InternalClose() {
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "InternalClose" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (socket_->is_open()) {
-    socket_->close();
-  }
-  recv_timer_->cancel();
-  send_timer_->cancel();
-  InternalDestroyOrNot();
-}
-
-void Connection::Cleanup() {
-  VLOG(2) << name() << " : " << "Cleanup" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "Connection::Cleanup, num_slots: " << close_signal_.num_slots();
-  close_signal_();
-  close_signal_.disconnect_all_slots();
-  recv_timer_.reset();
-  send_timer_.reset();
-}
-
-template <class Decoder>
-void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
-                                         size_t bytes_transferred) {
-  if (!status_->reading()) {
-    VLOG(2) << "HandleRead but not in reading, return";
-    return;
-  }
-  VLOG(2) << name() << " : " << "HandleRead" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " HandleRead, e: " << e.message() << ", bytes: "
-    << bytes_transferred;
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (status_->closing() && status_->receiving() && e) {
-    VLOG(2) << "Read error and closing, decrease the out_standing";
-    status_->dec_out_standing();
-    status_->clear_receiving();
-    InternalDestroyOrNot();
-    VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  }
-
-  if (e) {
-    status_->clear_reading();
-    InternalDestroyOrNot();
-    if (status_->closing() && status_->receiving()) {
-      VLOG(2) << "Read error and closing, decrease the out_standing";
-      status_->dec_out_standing();
-      status_->clear_receiving();
-      VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
+  status_->set_writting();
+  ConnTrace << "duplex_[0] : " << duplex_[0].empty();
+  ConnTrace << "duplex_[1] : " << duplex_[1].empty();
+  ConnTrace << "incoming: " << incoming_index_;
+  SwitchIO();
+  if (outcoming()->empty()) {
+    SwitchIO();
+    if (outcoming()->empty()) {
+      status_->clear_writting();
+      ConnTrace << "No outcoming";
+      mutex_->unlock_shared();
+      return;
     }
-    return;
   }
 
+  socket_->async_write_some(
+      *outcoming(),
+      strand_->wrap(WriteHandler(status_, mutex_, this, &Connection::HandleWrite)));
+  mutex_->unlock_shared();
+}
+
+void Connection::HandleWrite(const boost::system::error_code& e, size_t byte_transferred) {
+  CHECK(status_->writting());
+  if (e) {
+    Destroy(true);
+    return;
+  }
+  outcoming()->consume(byte_transferred);
+  if (!outcoming()->empty()) {
+    socket_->async_write_some(
+        *outcoming(),
+        strand_->wrap(WriteHandler(status_, mutex_, this, &Connection::HandleWrite)));
+  } else {
+    ConnTrace << "outcoming is empty";
+    outcoming()->clear();
+    SwitchIO();
+    if (!outcoming()->empty()) {
+      ConnTrace << " : " << "outcoming is not empty after SwitchIO, size :" << outcoming()->size();
+      socket_->async_write_some(
+          *outcoming(),
+          strand_->wrap(WriteHandler(status_, mutex_, this, &Connection::HandleWrite)));
+    } else {
+      status_->clear_writting();
+    }
+  }
+}
+
+template <typename Decoder>
+void ConnectionImpl<Decoder>::Decode(size_t bytes_transferred) {
   boost::tribool result;
   const char *start = buffer_.data();
   const char *end = start + bytes_transferred;
@@ -490,130 +452,6 @@ void ConnectionImpl<Decoder>::HandleRead(const boost::system::error_code& e,
       break;
     }
   }
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  socket_->async_read_some(
-      boost::asio::buffer(buffer_),
-      strand_->wrap(ReadHandler(status_, this)));
-  OOBWait();
-  return;
 }
-
-template <typename Decoder>
-void ConnectionImpl<Decoder>::ScheduleRead() {
-  boost::mutex::scoped_lock locker(closing_mutex_);
-  if (status_->closing()) {
-    VLOG(2) << name() << " : " << "ScheduleRead but strand is closing";
-    return;
-  }
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  strand_->post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleRead, this));
-}
-
-template <typename Decoder>
-void ConnectionImpl<Decoder>::InternalScheduleRead() {
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "InternalScheduleRead" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (status_->closing()) {
-    InternalDestroyOrNot();
-    VLOG(2) << name() << " : " << "InternalScheduleRead but closing";
-    return;
-  }
-  if (status_->reading()) {
-    VLOG(2) << name() << " : " << "InternalScheduleRead but already reading";
-    return;
-  }
-  status_->set_reading();
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  socket_->async_read_some(
-      boost::asio::buffer(buffer_),
-      strand_->wrap(ReadHandler(status_, this)));
-}
-
-template <typename Decoder>
-void ConnectionImpl<Decoder>::ScheduleWrite() {
-  boost::mutex::scoped_lock locker(closing_mutex_);
-  if (status_->closing()) {
-    VLOG(2) << name() << " : " << "ScheduleWrite but is closing";
-    return;
-  }
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  strand_->post(boost::bind(&ConnectionImpl<Decoder>::InternalScheduleWrite, this));
-}
-
-template <typename Decoder>
-void ConnectionImpl<Decoder>::InternalScheduleWrite() {
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "InternalScheduleWrite" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (status_->closing()) {
-    InternalDestroyOrNot();
-    VLOG(2) << name() << " : " << " InternalScheduleWrite but closing";
-    return;
-  }
-  if (status_->writting()) {
-    VLOG(2) << name() << " : " << " InternalScheduleWrite but already writting";
-    return;
-  }
-  status_->set_writting();
-  VLOG(2) << name() << " duplex_[0] : " << duplex_[0].empty();
-  VLOG(2) << name() << " duplex_[1] : " << duplex_[1].empty();
-  VLOG(2) << name() << " incoming: " << incoming_index_;
-  SwitchIO();
-  if (outcoming()->empty()) {
-    SwitchIO();
-    if (outcoming()->empty()) {
-      status_->clear_writting();
-      VLOG(2) << name() << " : " << "No outcoming";
-      return;
-    }
-  }
-
-  status_->inc_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  socket_->async_write_some(
-      *outcoming(),
-      strand_->wrap(boost::bind(&Connection::HandleWrite, this, _1, _2)));
-}
-
-template <typename Decoder>
-void ConnectionImpl<Decoder>::HandleWrite(const boost::system::error_code& e, size_t byte_transferred) {
-  VLOG(2) << name() << " : " << "HandleWrite" << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  VLOG(2) << name() << " : " << "HandleWrite bytes: " << byte_transferred << " status: " << status_->status();
-  CHECK(status_->writting());
-  status_->dec_out_standing();
-  VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-  if (e) {
-    status_->clear_writting();
-    InternalDestroyOrNot();
-    return;
-  }
-  outcoming()->consume(byte_transferred);
-  if (!outcoming()->empty()) {
-    VLOG(2) << name() << " outcoming is not empty, size" << outcoming()->size();
-    status_->inc_out_standing();
-    VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-    socket_->async_write_some(
-        *outcoming(),
-        strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleWrite, this, _1, _2)));
-  } else {
-    VLOG(2) << name() << " : " << "outcoming is empty";
-    outcoming()->clear();
-    SwitchIO();
-    if (!outcoming()->empty()) {
-      VLOG(2) << name() << " : " << "outcoming is not empty after SwitchIO, size" << outcoming()->size();
-      status_->inc_out_standing();
-      VLOG(2) << name() << " : " << " status: " << status_->status() << " out_standing: " << status_->out_standing();
-      socket_->async_write_some(
-          *outcoming(),
-          strand_->wrap(boost::bind(&ConnectionImpl<Decoder>::HandleWrite, this, _1, _2)));
-    } else {
-      status_->clear_writting();
-    }
-  }
-}
+#undef ConnTrace
 #endif // NET2_CONNECTION_HPP_

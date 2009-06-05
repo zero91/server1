@@ -29,7 +29,6 @@ inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
 ProtobufConnection::~ProtobufConnection() {
   VLOG(2) << name() << " : " << "Distroy protobuf connection";
   ReleaseResponseTable();
-  Connection::Cleanup();
 }
 
 void ProtobufConnection::ReleaseResponseTable() {
@@ -50,16 +49,8 @@ void ProtobufConnection::ReleaseResponseTable() {
   handlers.clear();
 }
 
-void ProtobufConnection::Cleanup() {
-  VLOG(2) << Name() << " : " << "ProtobufConnection::Cleanup";
-  ReleaseResponseTable();
-  Connection::Cleanup();
-  delete this;
-}
-
 template <>
-template <>
-void ConnectionImpl<ProtobufDecoder>::InternalPushData<EncodeData>(
+void Connection::InternalPushData<EncodeData>(
     const EncodeData &data) {
   if (data.first == NULL) {
     LOG(WARNING) << "Push NULL data!";

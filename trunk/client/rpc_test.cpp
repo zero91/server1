@@ -90,6 +90,7 @@ TEST_F(EchoTest, Test1) {
               &request,
               &response,
               done_.get());
+  controller.Wait();
   VLOG(2) << "client service return";
   LOG(INFO) << response.text();
   EXPECT_EQ(request.question(), response.text());

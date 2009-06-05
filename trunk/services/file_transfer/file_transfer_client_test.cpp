@@ -134,7 +134,7 @@ TEST_F(FileTransferTest, Test1) {
 }
 
 TEST_F(FileTransferTest, Test2) {
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);
@@ -160,7 +160,7 @@ TEST_F(FileTransferTest, Test2) {
 
 TEST_F(FileTransferTest, Test3) {
   const int kConnectionNumber = FLAGS_num_connections;
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);
@@ -194,7 +194,7 @@ TEST_F(FileTransferTest, Test3) {
 
 TEST_F(FileTransferTest, Test4) {
   const int kConnectionNumber = 20;
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);
@@ -228,7 +228,7 @@ TEST_F(FileTransferTest, Test4) {
 
 TEST_F(FileTransferTest, Test5) {
   const int kConnectionNumber = 20;
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);
@@ -280,7 +280,7 @@ TEST_F(FileTransferTest, Test5) {
 
 TEST_F(FileTransferTest, Test6) {
   const int kConnectionNumber = 2;
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);
@@ -340,7 +340,7 @@ TEST_F(FileTransferTest, Test6) {
 
 TEST_F(FileTransferTest, Test7) {
   const int kConnectionNumber = FLAGS_num_connections;
-  const int kSliceNumber = 100;
+  const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
   CreateFile(kFileSize, &content);

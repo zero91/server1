@@ -157,7 +157,6 @@ class ProtobufConnection : virtual public ConnectionImpl<ProtobufDecoder>, virtu
                   google::protobuf::Closure *done);
  private:
   void ReleaseResponseTable();
-  virtual void Cleanup();
   virtual void Handle(boost::shared_ptr<const ProtobufDecoder> decoder);
   boost::shared_ptr<HandlerTable> handler_table_;
   // The response handler table is per connection.
