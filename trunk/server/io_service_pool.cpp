@@ -60,6 +60,7 @@ void IOServicePool::Stop() {
     return;
   }
   for (size_t i = 0; i < io_services_.size(); ++i) {
+    io_services_[i]->poll();
     io_services_[i]->stop();
   }
   threadpool_.Stop();

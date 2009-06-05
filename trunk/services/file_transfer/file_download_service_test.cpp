@@ -51,6 +51,7 @@ class FileTransferTest : public testing::Test {
   }
   void TearDown() {
     VLOG(2) << "Reset server connection";
+    file_download_service_->Stop();
     server_->Stop();
     server_.reset();
     server_connection_.reset();

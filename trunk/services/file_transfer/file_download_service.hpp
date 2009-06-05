@@ -18,6 +18,9 @@ class FileDownloadServiceImpl : public FileTransfer::FileDownloadService {
                         const FileTransfer::RegisterRequest *request,
                         FileTransfer::RegisterResponse *response,
                         google::protobuf::Closure *done);
+  void Stop() {
+    threadpool_.Stop();
+  }
   ~FileDownloadServiceImpl();
  private:
   void CloseChannel(FullDualChannel *channel);

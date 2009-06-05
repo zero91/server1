@@ -117,10 +117,8 @@ void FileTransferClient::Start() {
   }
   io_service_.reset(new boost::asio::io_service);
   work_.reset(new boost::asio::io_service::work(*io_service_));
-  /*
   GetThreadPool()->PushTask(boost::bind(
       &boost::asio::io_service::run, io_service_.get()));
-  */
 }
 
 void FileTransferClient::Stop() {
@@ -132,6 +130,7 @@ void FileTransferClient::Stop() {
   for (int i = 0; i < transfer_task_set_.size(); ++i) {
     transfer_task_queue_.Push(tasker);
   }
+  io_service_->poll();
   io_service_->stop();
 //  io_service_.reset();
   if (out_threadpool_ == NULL) {
@@ -377,7 +376,7 @@ void TransferTask::SyncSlice() {
   VLOG(1) << "SyncSlice: Channel: " << proxy_->Name() << " tasker: " << id() << " slice: " << status_->index()
       << "timeout: " << timeout_;
   timer_.expires_from_now(boost::posix_time::milliseconds(timeout_));
-//  timer_.async_wait(boost::bind(&Timeout, proxy_, _1));
+  timer_.async_wait(boost::bind(&Timeout, proxy_, _1));
   controller_.Reset();
   slice_response_.Clear();
   stub_.ReceiveSlice(&controller_,

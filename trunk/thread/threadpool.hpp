@@ -15,45 +15,52 @@
 #include <glog/logging.h>
 class ThreadPool : public boost::noncopyable, public Executor {
  public:
-  ThreadPool(const string name, int size) : name_(name), size_(size) {
+  ThreadPool(const string name, int size) : name_(name), size_(size), timeout_(kDefaultTimeout) {
   }
   ~ThreadPool() {
     CHECK(!IsRunning());
   }
   void Start() {
     VLOG(1) << name() << " Start.";
-    boost::mutex::scoped_try_lock locker(run_mutex_);
-    if (threads_.get() != NULL) {
+    boost::mutex::scoped_lock locker(run_mutex_);
+    if (!threads_.empty()) {
       VLOG(1) << name() << " Running.";
       return;
     }
-    threads_.reset(new boost::thread_group);
     for (int i = 0; i < size_; ++i) {
-      threads_->create_thread(boost::bind(&ThreadPool::Loop, this, i, name_.empty() ? "NoName" : strdup(name_.c_str())));
+      boost::shared_ptr<boost::thread> t(new boost::thread(
+          boost::bind(&ThreadPool::Loop, this, i, name_.empty() ? "NoName" : strdup(name_.c_str()))));
+      threads_.push_back(t);
     }
   }
   bool IsRunning() {
-    return threads_.get() && threads_->size() > 0;
+    return threads_.size() > 0;
   }
   const string name() const {
     return name_;
+  }
+  void set_stop_timeout(int timeout) {
+    timeout_ = timeout;
   }
   int size() const {
     return size_;
   }
   void Stop() {
     VLOG(1) << name() << " Stop.";
-    boost::mutex::scoped_try_lock locker(run_mutex_);
-    if (threads_.get() == NULL) {
+    boost::mutex::scoped_lock locker(run_mutex_);
+    if (threads_.empty()) {
       VLOG(1) << name() << " already stop.";
       return;
     }
-    for (int i = 0; i < threads_->size(); ++i) {
+    for (int i = 0; i < threads_.size(); ++i) {
       pcqueue_.Push(boost::function0<void>());
     }
-    threads_->join_all();
+    for (int i = 0; i < threads_.size(); ++i) {
+      bool ret = threads_[i]->timed_join(boost::posix_time::seconds(timeout_));
+      VLOG(2) << "Join threads: " << i << " ret: " << ret;
+    }
     VLOG(1) << name() << " Stopped";
-    threads_.reset();
+    threads_.clear();
   }
   void PushTask(const boost::function0<void> &t) {
     if (t.empty()) {
@@ -66,6 +73,7 @@ class ThreadPool : public boost::noncopyable, public Executor {
     PushTask(f);
   }
  private:
+  static const int kDefaultTimeout = 60;
   void Loop(int i, const char *pool_name) {
     VLOG(2) << pool_name << " worker " << i << " start.";
     while (1) {
@@ -86,7 +94,8 @@ class ThreadPool : public boost::noncopyable, public Executor {
     VLOG(2) << pool_name << " woker " << i << " stop";
     delete pool_name;
   }
-  boost::scoped_ptr<boost::thread_group> threads_;
+  int timeout_;
+  vector<boost::shared_ptr<boost::thread> > threads_;
   int size_;
   boost::mutex run_mutex_;
   PCQueue<boost::function0<void> > pcqueue_;

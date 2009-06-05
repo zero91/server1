@@ -143,7 +143,7 @@ class Connection {
   }
  protected:
   static const char kHeartBeat = 0xb;
-  static const int kDefaultTimeoutMs = 3000;
+  static const int kDefaultTimeoutMs = 30000;
   static const int kRecvDelayFactor = 2;
   inline void OOBRecv(const boost::system::error_code &e, int n);
   inline void OOBSend(const boost::system::error_code &e);
