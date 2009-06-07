@@ -13,10 +13,12 @@
 #include <boost/asio.hpp>
 #include <string>
 #include <vector>
+#include <base/hash.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
-#include "server/full_dual_channel_proxy.hpp"
 #include "server/io_service_pool.hpp"
+#include "thread/notifier.hpp"
+class Connection;
 
 class AcceptorHandler;
 // The top-level class of the Server.
@@ -57,12 +59,10 @@ private:
   void ReleaseAcceptor(const string &host);
 
   void RemoveConnection(Connection *);
-  typedef hash_set<Connection*> ChannelTable;
+  typedef hash_set<boost::shared_ptr<Connection> > ChannelTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
-                    boost::asio::ip::tcp::socket *socket,
-                    Connection *new_connection);
-
+                    boost::shared_ptr<Connection> span_connection);
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
   friend class AcceptorHandler;

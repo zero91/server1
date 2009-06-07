@@ -1,4 +1,4 @@
-#include "server/full_dual_channel_proxy.hpp"
+#include "server/protobuf_connection.hpp"
 #include "services/file_transfer/file_download_service.hpp"
 #include "services/file_transfer/file_transfer_client.hpp"
 #include "crypto/evp.hpp"
@@ -9,14 +9,13 @@ class DownloadTasker {
     tasker->client()->set_finish_listener(boost::bind(&DownloadTasker::DownloadFinished, tasker.get()));
     return tasker;
   }
-  void AddChannel(FullDualChannel *channel) {
-    boost::shared_ptr<FullDualChannelProxy> proxy(FullDualChannelProxy::Create(channel));
+  void AddChannel(Connection *channel) {
     boost::mutex::scoped_lock locker(mutex_);
-    channels_.insert(make_pair(channel, proxy));
+    channels_.insert(channel->shared_from_this());
   }
-  void RemoveChannel(FullDualChannel *channel) {
+  void RemoveChannel(Connection *channel) {
     boost::mutex::scoped_lock locker(mutex_);
-    channels_.erase(channel);
+    channels_.erase(channel->shared_from_this());
   }
   int channel_size() const {
     return channels_.size();
@@ -32,7 +31,7 @@ class DownloadTasker {
     }
   }
  private:
-  typedef hash_map<FullDualChannel*, boost::shared_ptr<FullDualChannelProxy> > ChannelTable;
+  typedef hash_set<boost::shared_ptr<Connection> > ChannelTable;
   void DownloadFinished() {
     VLOG(2) << "DownloadFinished";
     boost::mutex::scoped_lock locker(mutex_);
@@ -44,8 +43,7 @@ class DownloadTasker {
       boost::shared_ptr<RpcController> controller(new RpcController);
       boost::shared_ptr<FileTransfer::DownloadCompleteResponse> response(
           new FileTransfer::DownloadCompleteResponse);
-      boost::shared_ptr<FullDualChannelProxy> proxy = it->second;
-      FileTransfer::FileDownloadNotifyService::Stub stub(proxy.get());
+      FileTransfer::FileDownloadNotifyService::Stub stub(it->get());
       stub.DownloadComplete(controller.get(), &request, response.get(),
                             NewClosure(boost::bind(&DownloadTasker::DownloadCompleteDone, this, controller, response)));
     }
@@ -75,7 +73,7 @@ static string GetRegisterUniqueIdentify(
 }
 
 void FileDownloadServiceImpl::CloseChannel(
-    FullDualChannel *channel) {
+    Connection *channel) {
   bool is_idle = false;
   {
     boost::mutex::scoped_lock locker(table_mutex_);
@@ -117,8 +115,8 @@ void FileDownloadServiceImpl::RegisterDownload(
     FileTransfer::RegisterResponse *response,
     google::protobuf::Closure *done) {
   ScopedClosure run(done);
-  FullDualChannel *channel = dynamic_cast<FullDualChannel*>(controller);
-  VLOG(2) << "RegisterDownload, channel: " << channel->Name() << " peer: " << request->peer_name();;
+  Connection *channel = dynamic_cast<Connection*>(controller);
+  VLOG(2) << "RegisterDownload, channel: " << channel->name() << " peer: " << request->peer_name();;
   if (channel == NULL) {
     response->set_succeed(false);
     LOG(WARNING) << "Can't convert controller to full dual channel.";
@@ -160,7 +158,7 @@ void FileDownloadServiceImpl::RegisterDownload(
       }
     }
     channel_table_[channel].insert(unique_identify);
-    channel->close_signal()->connect(boost::bind(
+    channel->RegisterCloseListener(boost::bind(
         &FileDownloadServiceImpl::CloseChannel, this, channel));
   }
   if (init) {

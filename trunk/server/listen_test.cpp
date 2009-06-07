@@ -7,7 +7,7 @@
 
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include "server/server.hpp"
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
@@ -94,8 +94,7 @@ class ListenTest : public testing::Test {
 
   void SetUp() {
     VLOG(2) << "New server connection";
-    server_connection_.reset(new ProtobufConnection);
-    server_connection_->set_name("Server");
+    server_connection_.reset(new ProtobufConnection("ListenTest.Server"));
     server_.reset(new Server(2, FLAGS_num_threads));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection("ListenTestMainClient", FLAGS_server, FLAGS_port));
@@ -158,15 +157,16 @@ class ListenTest : public testing::Test {
     VLOG(2) << "CallEcho request: " << request->question();
   }
  protected:
-  boost::scoped_ptr<ProtobufConnection> server_connection_;
-  boost::scoped_ptr<Server> server_;
-  boost::scoped_ptr<ClientConnection> client_connection_;
+  boost::shared_ptr<ProtobufConnection> server_connection_;
+  boost::shared_ptr<Server> server_;
+  boost::shared_ptr<ClientConnection> client_connection_;
   RpcController listener_controller_;
   boost::shared_ptr<Hello::EchoService2::Stub> client_stub_;
   boost::shared_ptr<PCQueue<bool> > pcqueue_;
   boost::scoped_ptr<EchoService2Impl> echo_service_;
   int aborted_;
 };
+
 TEST_F(ListenTest, Test1) {
   Hello::EchoRequest request;
   boost::shared_ptr<Hello::EchoResponse> response(new Hello::EchoResponse);
@@ -183,6 +183,7 @@ TEST_F(ListenTest, Test1) {
   CHECK_EQ("server->" + request.question(), response->text());
   CHECK_EQ(echo_service_->called(), 1);
 }
+
 TEST_F(ListenTest, MultiThreadTest1) {
   CHECK(client_connection_->Connect());
   // Create a pool of threads to run all of the io_services.

@@ -16,7 +16,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include "proto/hello.pb.h"
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 DEFINE_string(server, "localhost", "The server address");
 DEFINE_string(port, "8888", "The server port");
 int main(int argc, char* argv[]) {

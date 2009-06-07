@@ -2,18 +2,26 @@ Import('env')
 server_env  = env.Copy()
 server_env.Append(LIBPATH=['$objroot/server', '$objroot/proto',
 '$objroot/client'])
-server_env.Prepend(LIBS=['server', 'meta_pb', 'hello_pb', 'client'])
+server_env.Prepend(LIBS=['server', 'meta_pb', 'hello_pb'])
 ProtoLib(server_env, 'meta')
 
 server_env.StaticLibrary(
   target = 'server',
-  source = ['connection.hpp',
+  source = [
+   'connection.hpp',
+   'connection.cpp',
    'io_service_pool.cpp',
    'io_service_pool.hpp',
    'protobuf_connection.cpp',
    'protobuf_connection.hpp',
    'server.cpp',
    'server.hpp',
+   'client_connection.hpp',
+   'client_connection.cpp',
+   'raw_connection.hpp',
+   'raw_connection.cpp',
+   'raw_protobuf_connection.hpp',
+   'raw_protobuf_connection.cpp',
    '$objroot/server/libmeta_pb.a'],
    )
 server_env.Program(
@@ -26,3 +34,8 @@ server_env.Program(
 
 Test(server_env, 'io_service_pool')
 Test(server_env, 'shared_const_buffers')
+Test(server_env, 'rpc')
+Test(server_env, 'listen')
+server_env.Program(
+  target = 'rpc_main',
+  source = ['rpc_main.cpp'])

@@ -54,8 +54,13 @@ void IOServicePool::Stop() {
     LOG(WARNING) << "IOServicePool already stop";
     return;
   }
+  /*
   for (size_t i = 0; i < work_.size(); ++i) {
     work_[i].reset();
+  }
+  */
+  for (size_t i = 0; i < io_services_.size(); ++i) {
+    io_services_[i]->stop();
   }
   threadpool_.Stop();
   work_.clear();

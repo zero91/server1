@@ -7,11 +7,7 @@
 
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
-#include "client/client_connection.hpp"
-void ClientConnection::ConnectionClose() {
-  VLOG(2) << "ClientConnection::ConnectionClose";
-  notifier_->Notify();
-}
+#include "server/client_connection.hpp"
 bool ClientConnection::Connect() {
   if (IsConnected()) {
     LOG(WARNING) << "Connect but IsConnected";
@@ -36,11 +32,7 @@ bool ClientConnection::Connect() {
     LOG(WARNING) << ":fail to connect, error:"  << error.message();
     return false;
   }
-  notifier_.reset(new Notifier(Name() + ".Notifier"));
-  ProtobufConnection *connection = connection_template_.Clone();
-  connection->set_socket(socket);
-  proxy_ = FullDualChannelProxy::Create(connection);
-  proxy_->close_signal()->connect(
-      boost::bind(&ClientConnection::ConnectionClose, this));
+  CHECK(impl_ == NULL);
+  Attach(this, socket);
   return true;
 }

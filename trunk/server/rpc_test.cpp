@@ -7,7 +7,7 @@
 
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include "server/server.hpp"
 #include <gtest/gtest.h>
 #include "proto/hello.pb.h"
@@ -16,6 +16,8 @@
 DEFINE_string(server, "localhost", "The test server");
 DEFINE_string(port, "6789", "The test server");
 DEFINE_int32(num_threads, 1, "The test server thread number");
+DECLARE_bool(logtostderr);
+DECLARE_int32(v);
 
 
 class EchoServiceImpl : public Hello::EchoService {
@@ -43,7 +45,7 @@ class EchoTest : public testing::Test {
 
   void SetUp() {
     VLOG(2) << "New server connection";
-    server_connection_.reset(new ProtobufConnection);
+    server_connection_.reset(new ProtobufConnection("ServerConnection"));
     server_.reset(new Server(FLAGS_num_threads, 1));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection(
@@ -61,6 +63,7 @@ class EchoTest : public testing::Test {
 
   void TearDown() {
     VLOG(2) << "Reset server connection";
+    server_->Stop();
     server_connection_.reset();
     server_.reset();
     VLOG(2) << "Reset client connection";
@@ -73,8 +76,8 @@ class EchoTest : public testing::Test {
     LOG(INFO) << "Call done is called";
   }
  protected:
-  boost::scoped_ptr<ProtobufConnection> server_connection_;
-  boost::scoped_ptr<ClientConnection> client_connection_;
+  boost::shared_ptr<ProtobufConnection> server_connection_;
+  boost::shared_ptr<ClientConnection> client_connection_;
   boost::scoped_ptr<Server> server_;
   EchoServiceImpl echo_service_;
   boost::scoped_ptr<Hello::EchoService::Stub> stub_;
@@ -95,9 +98,12 @@ TEST_F(EchoTest, Test1) {
   LOG(INFO) << response.text();
   EXPECT_EQ(request.question(), response.text());
   EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
+  client_connection_->Disconnect();
 }
 
 int main(int argc, char **argv) {
+  FLAGS_v = 4;
+  FLAGS_logtostderr = true;
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   testing::InitGoogleTest(&argc, argv);

@@ -16,7 +16,7 @@
 #include "services/file_transfer/file_transfer_client.hpp"
 #include "services/file_transfer/checkbook.hpp"
 #include "server/server.hpp"
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <sstream>
@@ -37,8 +37,7 @@ static const char *kTestFile = "checkbooktest.1";
 class FileTransferTest : public testing::Test {
  public:
   void SetUp() {
-    server_connection_.reset(new ProtobufConnection);
-    server_connection_->set_name("Server");
+    server_connection_.reset(new ProtobufConnection("Server"));
     server_.reset(new Server(2, FLAGS_num_threads));
     VLOG(2) << "New client connection";
     client_connection_.reset(new ClientConnection("FileTransferMainClient", FLAGS_server, FLAGS_port));
@@ -54,6 +53,7 @@ class FileTransferTest : public testing::Test {
     server_connection_.reset();
     client_stub_.reset();
     VLOG(2) << "Reset client connection";
+    client_connection_->Disconnect();
     client_connection_.reset();
     file_transfer_service_.reset();
   }
@@ -100,9 +100,9 @@ class FileTransferTest : public testing::Test {
     out.close();
   }
  protected:
-  boost::scoped_ptr<ProtobufConnection> server_connection_;
+  boost::shared_ptr<ProtobufConnection> server_connection_;
   boost::scoped_ptr<Server> server_;
-  boost::scoped_ptr<ClientConnection> client_connection_;
+  boost::shared_ptr<ClientConnection> client_connection_;
   boost::shared_ptr<FileTransfer::FileTransferService::Stub> client_stub_;
   boost::scoped_ptr<FileTransferServiceImpl> file_transfer_service_;
   boost::scoped_ptr<FileTransferClient> file_transfer_client_;
@@ -177,6 +177,7 @@ TEST_F(FileTransferTest, Test3) {
         "Test3." + boost::lexical_cast<string>(i), FLAGS_server, FLAGS_port));
     CHECK(!r->IsConnected());
     CHECK(r->Connect());
+    VLOG(2) << "Create client connection: " << r->name();
     connections.push_back(r);
     file_transfer_client_->PushChannel(r.get());
   }
@@ -362,7 +363,7 @@ TEST_F(FileTransferTest, Test7) {
   }
   for (int i = 0; i < connections.size(); ++i) {
     if (i % 2 == 1) {
-      VLOG(2) << "Disconnect: " << i << connections[i]->Name();
+      VLOG(2) << "Disconnect: " << i << connections[i]->name();
       connections[i]->Disconnect();
       connections.erase(connections.begin() + i);
     }
@@ -398,7 +399,7 @@ TEST_F(FileTransferTest, Test7) {
   dest_path /= dest_filename;
   ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
   for (int i = 0; i < connections.size(); ++i) {
-    VLOG(2) << "Disconnect: " << i << connections[i]->Name();
+    VLOG(2) << "Disconnect: " << i << connections[i]->name();
     connections[i]->Disconnect();
   }
   file_transfer_client2->Stop();

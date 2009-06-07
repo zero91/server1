@@ -1,9 +1,9 @@
 Import('env')
 file_transfer_env = env.Copy()
 file_transfer_env.Append(LIBPATH=['$objroot/services/file_transfer',
-'$objroot/net', '$objroot/server', '$objroot/client'])
+'$objroot/net', '$objroot/server'])
 file_transfer_env.Prepend(LIBS=['file_transfer_pb', 'server', 'meta_pb',
-'file_download_service', 'file_transfer_service', 'file_transfer_client', 'checkbook', 'checkbook_pb', 'net', 'client'])
+'file_download_service', 'file_transfer_service', 'file_transfer_client', 'checkbook', 'checkbook_pb', 'net'])
 ProtoLib(file_transfer_env, 'checkbook')
 ProtoLib(file_transfer_env, 'file_transfer')
 file_transfer_env.StaticLibrary(

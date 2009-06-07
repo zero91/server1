@@ -15,7 +15,7 @@
 #include "services/file_transfer/file_transfer_service.hpp"
 #include "services/file_transfer/checkbook.hpp"
 #include "server/server.hpp"
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include "net/mac_address.hpp"
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/filesystem/operations.hpp>
@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
   scoped_ptr<ProtobufConnection> server_connection;
   scoped_ptr<Server> server;
   VLOG(2) << "New server connection";
-  server_connection.reset(new ProtobufConnection);
+  server_connection.reset(new ProtobufConnection("Server"));
   server.reset(new Server(1, FLAGS_num_threads));
   const int kConnectionNumber = FLAGS_num_connections;
   const int kSliceNumber = 100;
@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
     r->RegisterService(local_file_notify.get());
     connections.push_back(r);
     FileTransfer::FileDownloadService::Stub stub(r.get());
-    request.set_peer_name(r->Name());
+    request.set_peer_name(r->name());
     stub.RegisterDownload(
         &controller,
         &request, &response, NULL);
@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
   }
   for (int i = 0; i < connections.size(); ++i) {
     if (i % 2 == 1) {
-      VLOG(2) << "Disconnect: " << i << connections[i]->Name();
+      VLOG(2) << "Disconnect: " << i << connections[i]->name();
       connections[i]->Disconnect();
       connections.erase(connections.begin() + i);
     }
@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
   }
   notifier->Wait();
   for (int i = 0; i < connections.size(); ++i) {
-    VLOG(2) << "Disconnect: " << i << connections[i]->Name();
+    VLOG(2) << "Disconnect: " << i << connections[i]->name();
     connections[i]->Disconnect();
   }
   boost::filesystem::path dest_path(FLAGS_local_root);

@@ -12,7 +12,7 @@ class TransferTask;
 class SliceStatus;
 class FileTransferClient {
  public:
-  void PushChannel(FullDualChannel *channel);
+  void PushChannel(Connection *channel);
   void Start();
   void Stop();
   void set_threadpool(ThreadPool *pool) {
@@ -47,7 +47,7 @@ class FileTransferClient {
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
  private:
-  static const int kDefaultTimeOutMs = 5000;
+  static const int kDefaultTimeOutMs = 50000;
   ThreadPool *GetThreadPool() {
     if (out_threadpool_ == NULL) {
       return &pool_;

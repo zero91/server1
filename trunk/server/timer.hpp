@@ -1,5 +1,6 @@
 #ifndef TIMER_HPP_
 #define TIMER_HPP_
+#include <base/atomic.hpp>
 #include <boost/asio.hpp>
 #include <boost/thread/mutex.hpp>
 // Threadsafe wrapper around the deadline_timer
@@ -7,7 +8,8 @@ class Timer : public boost::asio::deadline_timer {
  public:
   typedef boost::asio::deadline_timer::time_type time_type;
   typedef  boost::asio::deadline_timer::duration_type duration_type;
-  Timer(boost::asio::io_service &ios) : boost::asio::deadline_timer(ios) {
+  Timer(boost::asio::io_service &ios)
+    : boost::asio::deadline_timer(ios), intrusive_count_(0) {
   }
   template <typename WaitHandler>
     void async_wait(WaitHandler handler) {
@@ -57,6 +59,9 @@ class Timer : public boost::asio::deadline_timer {
     return boost::asio::deadline_timer::wait(ec);
   }
  private:
+  volatile int intrusive_count_;
+  template <class T> friend void intrusive_ptr_add_ref(T *t);
+  template <class T> friend void intrusive_ptr_release(T *t);
   boost::mutex mutex_;
 };
 #endif  // TIMER_HPP_

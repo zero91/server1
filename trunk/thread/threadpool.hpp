@@ -77,19 +77,15 @@ class ThreadPool : public boost::noncopyable, public Executor {
   void Loop(int i, const char *pool_name) {
     VLOG(2) << pool_name << " worker " << i << " start.";
     while (1) {
-      try {
-        VLOG(2) << pool_name << " worker " << i << " wait task.";
-        boost::function0<void> h = pcqueue_.Pop();
-        if (h.empty()) {
-          VLOG(2) << pool_name << " worker " << i << " get empty task, so break.";
-          break;
-        }
-        VLOG(2) << pool_name << " woker " << i << " running task";
-        h();
-        VLOG(2) << pool_name << " woker " << i << " finish task";
-      } catch (std::exception e) {
-        VLOG(2) << pool_name << " woker " << i << " catch exception " << e.what();
+      VLOG(2) << pool_name << " worker " << i << " wait task.";
+      boost::function0<void> h = pcqueue_.Pop();
+      if (h.empty()) {
+        VLOG(2) << pool_name << " worker " << i << " get empty task, so break.";
+        break;
       }
+      VLOG(2) << pool_name << " woker " << i << " running task";
+      h();
+      VLOG(2) << pool_name << " woker " << i << " finish task";
     }
     VLOG(2) << pool_name << " woker " << i << " stop";
     delete pool_name;

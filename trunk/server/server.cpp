@@ -9,7 +9,7 @@
 
 #include "glog/logging.h"
 #include "server/server.hpp"
-#include "server/full_dual_channel_proxy.hpp"
+#include "server/connection.hpp"
 #include <boost/bind.hpp>
 class AcceptorHandler {
  public:
@@ -29,8 +29,13 @@ class AcceptorHandler {
         boost::asio::io_service &io_service = socket->get_io_service();
         *socket_pptr_ = new boost::asio::ip::tcp::socket(io_service);
         acceptor_->async_accept(**socket_pptr_, *this);
-        Connection *new_connection = connection_template_->Clone();
-        server_->HandleAccept(e, socket, new_connection);
+        boost::shared_ptr<Connection> connection = connection_template_->Span(
+            socket);
+        if (connection.get() != NULL) {
+          server_->HandleAccept(e, connection);
+        } else {
+          LOG(WARNING) << "Span a NULL connection!";
+        }
       } else {
         acceptor_->async_accept(**socket_pptr_, *this);
       }
@@ -95,7 +100,6 @@ void Server::Listen(const string &address,
     boost::mutex::scoped_lock locker(acceptor_table_mutex_);
     acceptor_table_.insert(make_pair(host, AcceptorResource(acceptor, socket_pptr)));
   }
-  connection_template->set_name(host + "::Server");
   acceptor->async_accept(**socket_pptr, AcceptorHandler(acceptor, socket_pptr, host, this, connection_template));
 }
 
@@ -112,9 +116,11 @@ void Server::Stop() {
     for (ChannelTable::iterator it = channel_table_.begin();
          it != channel_table_.end(); ++it) {
       VLOG(2) << "Close: " << (*it)->name();
-      (*it)->Close();
+      (*it)->Disconnect();
+      notifier_->Dec(1);
     }
     notifier_->Dec(1);
+    channel_table_.clear();
   }
   // All channel had been flushed.
   notifier_->Wait();
@@ -129,45 +135,45 @@ void Server::Stop() {
   LOG(WARNING) << "Stop io service pool";
   io_service_pool_.Stop();
   stop_mutex_.unlock();
-
-  for (ChannelTable::iterator it = channel_table_.begin();
-       it != channel_table_.end(); ++it) {
-    LOG(WARNING) << "leaky channel: " << (*it)->name();
-    delete *it;
-  }
-  channel_table_.clear();
   LOG(WARNING) << "Server stopped";
+  CHECK(channel_table_.empty());
 }
 
 void Server::RemoveConnection(Connection *connection) {
   boost::mutex::scoped_lock locker(channel_table_mutex_);
-  channel_table_.erase(connection);
-  notifier_->Dec(1);
-  VLOG(1) << "Remove connection:" << connection->name();
+  int size1 = channel_table_.size();
+  boost::shared_ptr<Connection> conn = connection->shared_from_this();
+  if (channel_table_.find(conn) != channel_table_.end()) {
+    channel_table_.erase(conn);
+    notifier_->Dec(1);
+    VLOG(1) << "Remove connection:" << connection->name();
+  }  else {
+    VLOG(1) << "Had removed connection:" << connection->name();
+  }
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
-                          boost::asio::ip::tcp::socket *socket,
-                          Connection *new_connection) {
+                          boost::shared_ptr<Connection> span_connection) {
   VLOG(2) << "HandleAccept";
   stop_mutex_.lock_shared();
   if (!io_service_pool_.IsRunning()) {
-    delete socket;
-    delete new_connection;
+    span_connection->Disconnect();
     stop_mutex_.unlock_shared();
     VLOG(2) << "HandleAccept but already stopped.";
     return;
   }
-  stop_mutex_.unlock_shared();
   // The socket ownership transfer to Connection.
   {
     boost::mutex::scoped_lock locker(channel_table_mutex_);
-    new_connection->close_signal()->connect(boost::bind(
-        &Server::RemoveConnection, this, new_connection));
-    new_connection->set_socket(socket);
-    channel_table_.insert(new_connection);
+    if (!span_connection->RegisterCloseListener(boost::bind(
+        &Server::RemoveConnection, this, span_connection.get()))) {
+      LOG(WARNING) << "Register " << span_connection->name() << "Failed, it may close";
+      span_connection->Disconnect();
+      return;
+    }
+    channel_table_.insert(span_connection);
     notifier_->Inc(1);
   }
-  VLOG(2) << "Insert " << new_connection->name();
-  new_connection->ScheduleRead();
+  VLOG(2) << "Insert " << span_connection->name();
+  stop_mutex_.unlock_shared();
 }

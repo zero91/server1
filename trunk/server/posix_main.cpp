@@ -7,7 +7,7 @@
 
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include "server/server.hpp"
 #include "server/protobuf_connection.hpp"
 #include <iostream>
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
   scoped_ptr<ProtobufConnection> server_connection;
   scoped_ptr<Server> server;
   VLOG(2) << "New server connection";
-  server_connection.reset(new ProtobufConnection);
+  server_connection.reset(new ProtobufConnection("Server"));
   server.reset(new Server(FLAGS_num_threads, 1));
   EchoService2ServerImpl echo_service;
   server_connection->RegisterService(&echo_service);

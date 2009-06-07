@@ -8,123 +8,14 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "server/protobuf_connection.hpp"
-// Encoder the Protobuf to line format.
-// The line format is:
-// length:content
-typedef pair<const string *, const string *> EncodeData;
-inline EncodeData EncodeMessage(const google::protobuf::Message *msg) {
-  string *content = new string;
-  if (!msg->AppendToString(content)) {
-    delete content;
-    return make_pair(static_cast<const string *>(NULL),
-                     static_cast<const string *>(NULL));
-  }
-  string *header = new string(boost::lexical_cast<string>(content->size()));
-  header->push_back(':');
-  VLOG(2) << "Encode Message, header: " << *header
-          << " content size: " << content->size();
-  return make_pair(header, content);
-};
-
-ProtobufConnection::~ProtobufConnection() {
-  VLOG(2) << name() << " : " << "Distroy protobuf connection";
-  ReleaseResponseTable();
-}
-
-void ProtobufConnection::ReleaseResponseTable() {
-  boost::shared_ptr<ProtobufDecoder> decoder;
-  vector<boost::function2<void, boost::shared_ptr<const ProtobufDecoder>, ProtobufConnection*> > handlers;
-  {
-    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    for (HandlerTable::iterator it = response_handler_table_.begin();
-         it != response_handler_table_.end(); ++it) {
-      handlers.push_back(it->second);
-    }
-    response_handler_table_.clear();
-  }
-  for (int i = 0; i < handlers.size(); ++i) {
-    LOG(WARNING) << name() << " : " << "Call response handler in ReleaseResponseTable NO " << i;
-    handlers[i](decoder, this);
-  }
-  handlers.clear();
-}
-
-template <>
-void Connection::InternalPushData<EncodeData>(
-    const EncodeData &data) {
-  if (data.first == NULL) {
-    LOG(WARNING) << "Push NULL data!";
-    return;
-  }
-  incoming()->push(data.first);
-  incoming()->push(data.second);
-}
-
-boost::tribool ProtobufDecoder::Consume(char input) {
-  switch (state_) {
-    case End:
-    case Start:
-      {
-        if (!isdigit(input)) {
-          LOG(WARNING) << "Start but is not digit";
-          return false;
-        }
-        state_ = Length;
-        length_store_.clear();
-        length_store_.push_back(input);
-        return boost::indeterminate;
-      }
-    case Length:
-      if (input == ':') {
-        state_ = Content;
-        length_ = boost::lexical_cast<int>(length_store_);
-        content_.reserve(length_);
-        VLOG(2) << "Length: " << length_store_ << " length size: " << length_store_.size() << " Content size: " << length_;
-        return boost::indeterminate;
-      } else if (!isdigit(input)) {
-        LOG(WARNING) << "Length is not digit";
-        return false;
-      } else {
-        length_store_.push_back(input);
-        return boost::indeterminate;
-      }
-    case Content:
-      if (content_.full()) {
-        return false;
-      }
-      content_.push_back(input);
-      if (content_.full()) {
-        if (!meta_.ParseFromArray(content_.content(),
-                                  content_.capacity())) {
-          LOG(WARNING) << "Parse content error";
-          return false;
-        }
-        if (meta_.type() == ProtobufLineFormat::MetaData::REQUEST &&
-            !meta_.has_response_identify()) {
-          LOG(WARNING) << "request meta data should have response identify field";
-          return false;
-        }
-        if (meta_.content().empty()) {
-          LOG(WARNING) << "Meta without content: ";
-          return false;
-        }
-        state_ = End;
-        return true;
-      }
-      return boost::indeterminate;
-    default:
-      LOG(WARNING) << "Unknown status of ProtobufDecoder";
-      return false;
-  }
-}
-
+#include "server/raw_protobuf_connection.hpp"
 static void CallServiceMethodDone(
-    ProtobufConnection *connection,
-    boost::shared_ptr<const ProtobufDecoder> decoder,
+    boost::shared_ptr<Connection> connection,
+    const ProtobufDecoder *decoder,
     boost::shared_ptr<google::protobuf::Message> resource,
     boost::shared_ptr<google::protobuf::Message> response) {
   VLOG(2) << connection->name() << " : " << "HandleService->CallServiceMethodDone()";
-  CHECK(decoder.get() != NULL);
+  CHECK(decoder != NULL);
   const ProtobufLineFormat::MetaData &request_meta = decoder->meta();
   ProtobufLineFormat::MetaData response_meta;
   response_meta.set_type(ProtobufLineFormat::MetaData::RESPONSE);
@@ -140,8 +31,8 @@ static void HandleService(
     const google::protobuf::MethodDescriptor *method,
     const google::protobuf::Message *request_prototype,
     const google::protobuf::Message *response_prototype,
-    boost::shared_ptr<const ProtobufDecoder> decoder,
-    ProtobufConnection *connection) {
+    const ProtobufDecoder *decoder,
+    boost::shared_ptr<Connection> connection) {
   VLOG(2) << connection->name() << " : " <<  "HandleService: " << method->full_name();
   const ProtobufLineFormat::MetaData &meta = decoder->meta();
   boost::shared_ptr<google::protobuf::Message> request(request_prototype->New());
@@ -160,13 +51,12 @@ static void HandleService(
                   decoder,
                   request,
                   response));
-  service->CallMethod(method, connection, request.get(), response.get(), done);
+  service->CallMethod(method, connection.get(), request.get(), response.get(), done);
 }
 
 bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
-  if (this->IsConnected()) {
-    LOG(WARNING) << "Can't register service to running connection.";
-    return false;
+  if (handler_table_.get() == NULL) {
+    handler_table_.reset(new HandlerTable);
   }
   const google::protobuf::ServiceDescriptor *service_descriptor =
     service->GetDescriptor();
@@ -189,101 +79,79 @@ bool ProtobufConnection::RegisterService(google::protobuf::Service *service) {
   }
 }
 
-void ProtobufConnection::Handle(boost::shared_ptr<const ProtobufDecoder> decoder) {
-  VLOG(2) << Name() << ".ProtobufConnection.Handle";
-  const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  HandlerTable::value_type::second_type handler;
-  HandlerTable::iterator it = handler_table_->find(meta.identify());
-  if (it != handler_table_->end()) {
-    handler = it->second;
-  } else {
-    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    it = response_handler_table_.find(meta.identify());
-    if (it == response_handler_table_.end()) {
-      VLOG(2) << Name() << " : " << "Unknown request";
+void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
+                                    google::protobuf::RpcController *controller,
+                                    const google::protobuf::Message *request,
+                                    google::protobuf::Message *response,
+                                    google::protobuf::Closure *done) {
+  {
+    boost::shared_lock<boost::shared_mutex> locker(mutex_);
+    RawProtobufConnection *impl = dynamic_cast<RawProtobufConnection*>(impl_);
+    if (impl && impl->IsConnected()) {
+      impl->CallMethod(method, controller, request, response, done);
       return;
     }
-    handler = it->second;
-    response_handler_table_.erase(it);
-    VLOG(2) << Name() << "Remove: " << meta.identify() << " table size: " << response_handler_table_.size();
+    RpcController *rpc_controller = dynamic_cast<RpcController*>(
+        controller);
+    if (rpc_controller) {
+      rpc_controller->SetFailed("Impl Connection is disconnected");
+      rpc_controller->Notify();
+    }
+    LOG(WARNING) << "Callmethod but connection is null";
   }
-  handler(decoder, this);
+  if (done) {
+    done->Run();
+  }
 }
 
-ProtobufConnection* ProtobufConnection::Clone() {
-  static int i = 0;
-  ProtobufConnection* connection = new ProtobufConnection();
-  connection->handler_table_ = this->handler_table_;
-  connection->timeout_ = this->timeout_;
-  connection->set_name(this->name() + boost::lexical_cast<string>(i++));
-  VLOG(2) << "Clone protobufconnection: " << name() << " -> " << connection->name();
+bool ProtobufConnection::Handle(
+    boost::shared_ptr<Connection> connection,
+    const ProtobufDecoder *decoder) const {
+  if (handler_table_.get() == NULL) {
+    return false;
+  }
+  VLOG(2) << connection->name() << ".ProtobufConnection.Handle";
+  const ProtobufLineFormat::MetaData &meta = decoder->meta();
+  HandlerTable::value_type::second_type handler;
+  HandlerTable::const_iterator it = handler_table_->find(meta.identify());
+  if (it != handler_table_->end()) {
+    it->second(decoder, connection);
+    return true;
+  }
+  return false;
+}
+
+boost::shared_ptr<Connection> ProtobufConnection::Span(
+    boost::asio::ip::tcp::socket *socket) {
+  boost::shared_ptr<ProtobufConnection> connection(new ProtobufConnection(name() + ".span", timeout_));
+  if (!connection->Attach(this, socket)) {
+    connection.reset();
+  }
   return connection;
 }
 
-static void CallMethodCallback(
-    boost::shared_ptr<const ProtobufDecoder> decoder,
-    ProtobufConnection *connection,
-    google::protobuf::RpcController *controller,
-    google::protobuf::Message *response,
-    google::protobuf::Closure *done) {
-  ScopedClosure run(done);
-  RpcController *rpc_controller = dynamic_cast<RpcController*>(
-      controller);
-  if (decoder.get() == NULL) {
-    VLOG(2) << "NULL Decoder, may call from destructor";
-    if (rpc_controller) {
-      rpc_controller->SetFailed("Abort");
-      rpc_controller->Notify();
-    }
-    return;
+bool ProtobufConnection::Attach(
+  ProtobufConnection *service_connection,
+  boost::asio::ip::tcp::socket *socket) {
+  static int i = 0;
+  const string span_name = this->name() + boost::lexical_cast<string>(i++);
+  boost::unique_lock<boost::shared_mutex> locker(mutex_);
+  RawProtobufConnection *connection = new RawProtobufConnection(
+      span_name, timeout_,
+      shared_from_this(),
+      service_connection);
+  if (connection == NULL) {
+    LOG(WARNING) << "Fail to allocate RawProtobufConnection, not enough memory?";
+    delete socket;
+    return false;
   }
-  const ProtobufLineFormat::MetaData &meta = decoder->meta();
-  VLOG(2) << connection->name() << " : " << "Handle response message "
-          << response->GetDescriptor()->full_name()
-          << " identify: " << meta.identify();
-  if (!response->ParseFromArray(meta.content().c_str(),
-                                meta.content().size())) {
-    LOG(WARNING) << connection->name() << " : " << "Fail to parse the response :";
-    controller->SetFailed("Fail to parse the response:");
-    if (rpc_controller) rpc_controller->Notify();
-    return;
-  }
-  if (rpc_controller) rpc_controller->Notify();
-}
 
-void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
-                  google::protobuf::RpcController *controller,
-                  const google::protobuf::Message *request,
-                  google::protobuf::Message *response,
-                  google::protobuf::Closure *done) {
-  VLOG(2) << name() << " : " << "CallMethod";
-  uint64 request_identify = hash8(method->full_name());
-  uint64 response_identify = hash8(response->GetDescriptor()->full_name());
-  ProtobufLineFormat::MetaData meta;
-  {
-    boost::mutex::scoped_lock locker(response_handler_table_mutex_);
-    HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
-    while (it != response_handler_table_.end()) {
-      static int seq = 1;
-      ++seq;
-      response_identify += seq;
-      it = response_handler_table_.find(response_identify);
-    }
-    meta.set_identify(request_identify);
-    meta.set_type(ProtobufLineFormat::MetaData::REQUEST);
-    meta.set_response_identify(response_identify);
-    if (!request->AppendToString(meta.mutable_content())) {
-      LOG(WARNING) << "Fail to serialze request form method: "
-        << method->full_name();
-      return;
-    }
-    response_handler_table_.insert(make_pair(
-        response_identify,
-        boost::bind(CallMethodCallback, _1, _2, controller, response, done)));
-    VLOG(2) << name() << " Insert: " << response_identify << " to response handler table, size: " << response_handler_table_.size();
+  connection->InitSocket(socket);
+  if (!connection->IsConnected()) {
+    connection->Disconnect();
+    return false;
+  } else {
+    impl_ = connection;
+    return true;
   }
-  PushData(EncodeMessage(&meta));
-  VLOG(2) << Name() << " PushData, " << " incoming: " << incoming()->size();
-  ScheduleWrite();
-  ScheduleRead();
 }

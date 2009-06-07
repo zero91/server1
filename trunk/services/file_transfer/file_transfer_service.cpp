@@ -258,7 +258,7 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfo(
         check_table_[checkbook_dest_filename] = task_info;
         VLOG(1) << "Insert : " << checkbook_dest_filename << " to dest name table";
         task_info->inc_connection_count();
-        connection->close_signal()->connect(boost::bind(
+        connection->RegisterCloseListener(boost::bind(
             &FileTransferServiceImpl::CloseConnection, this, connection));
       }
     } else {
@@ -267,7 +267,7 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfo(
       connection_table_[connection][checkbook_dest_filename] = task_info;
       VLOG(1) << "Insert : " << connection << " : " << checkbook_dest_filename << " to connection table";
       task_info->inc_connection_count();
-      connection->close_signal()->connect(boost::bind(
+      connection->RegisterCloseListener(boost::bind(
           &FileTransferServiceImpl::CloseConnection, this, connection));
     }
   } else {
@@ -282,8 +282,8 @@ void FileTransferServiceImpl::ReceiveSlice(
     FileTransfer::SliceResponse *response,
     google::protobuf::Closure *done) {
   ScopedClosure run(done);
-  FullDualChannel *channel = dynamic_cast<FullDualChannel*>(controller);
-  VLOG(2) << "Receive slice: " << request->slice().index() << " channel: " << channel->Name();
+  Connection *channel = dynamic_cast<Connection*>(controller);
+  VLOG(2) << "Receive slice: " << request->slice().index() << " channel: " << channel->name();
   Connection *connection = dynamic_cast<Connection*>(controller);
   if (connection == NULL) {
     LOG(WARNING) << "fail to convert controller to connection!";
@@ -312,7 +312,7 @@ void FileTransferServiceImpl::ReceiveSlice(
     response->set_finished(true);
   }
   response->set_succeed(true);
-  VLOG(2) << "Receive slice: " << request->slice().index() << " succeed channel: " << channel->Name();
+  VLOG(2) << "Receive slice: " << request->slice().index() << " succeed channel: " << channel->name();
 }
 
 void FileTransferServiceImpl::CloseConnection(

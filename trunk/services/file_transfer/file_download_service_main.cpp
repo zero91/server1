@@ -15,7 +15,7 @@
 #include "services/file_transfer/file_transfer_service.hpp"
 #include "services/file_transfer/checkbook.hpp"
 #include "server/server.hpp"
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include "net/mac_address.hpp"
 #include <sstream>
 #include <gflags/gflags.h>
@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
   scoped_ptr<ProtobufConnection> server_connection;
   scoped_ptr<Server> server;
   VLOG(2) << "New server connection";
-  server_connection.reset(new ProtobufConnection);
+  server_connection.reset(new ProtobufConnection("Server"));
   server.reset(new Server(1, FLAGS_num_threads));
   FileDownloadServiceImpl file_download_service(FLAGS_doc_root, FLAGS_num_threads);
   server_connection->RegisterService(&file_download_service);

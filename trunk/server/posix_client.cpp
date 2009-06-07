@@ -7,7 +7,7 @@
 
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
-#include "client/client_connection.hpp"
+#include "server/client_connection.hpp"
 #include "server/server.hpp"
 #include "server/protobuf_connection.hpp"
 #include <iostream>

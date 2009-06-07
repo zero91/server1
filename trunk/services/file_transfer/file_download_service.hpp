@@ -23,8 +23,8 @@ class FileDownloadServiceImpl : public FileTransfer::FileDownloadService {
   }
   ~FileDownloadServiceImpl();
  private:
-  void CloseChannel(FullDualChannel *channel);
-  typedef hash_map<FullDualChannel*, hash_set<string> > ChannelTable;
+  void CloseChannel(Connection *channel);
+  typedef hash_map<Connection*, hash_set<string> > ChannelTable;
   typedef hash_map<string, boost::shared_ptr<DownloadTasker> >
     DownloadTaskerTable;
   DownloadTaskerTable tasker_table_;
