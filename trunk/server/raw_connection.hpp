@@ -19,16 +19,11 @@
 class RawConnectionStatus {
  public:
   typedef boost::shared_lock<boost::shared_mutex> Locker;
-  RawConnectionStatus() : status_(0), intrusive_count_(0),
-     mutex_(new boost::shared_mutex) {
+  RawConnectionStatus() : status_(0), intrusive_count_(0) {
   }
   ~RawConnectionStatus() {
     CHECK_EQ(intrusive_count_, 0);
-    if (mutex_) {
-      delete mutex_;
-      mutex_ = NULL;
-      status_ = 0;
-    }
+    status_ = 0;
   }
   bool reading() const {
     return status_ & READING;
@@ -62,10 +57,14 @@ class RawConnectionStatus {
     return status_ & CLOSING;
   }
 
+  bool idle() const {
+    return status_ == IDLE;
+  }
+
   int status() const {
     return status_;
   }
-  boost::shared_mutex *mutex() {
+  boost::shared_mutex &mutex() {
     return mutex_;
   }
  private:
@@ -79,36 +78,29 @@ class RawConnectionStatus {
   volatile int intrusive_count_;
   template <class T> friend void intrusive_ptr_add_ref(T *t);
   template <class T> friend void intrusive_ptr_release(T *t);
-  boost::shared_mutex *mutex_;
+  boost::shared_mutex mutex_;
 };
 
 class Connection;
 class RawConnection : public boost::noncopyable {
+ private:
+  typedef RawConnectionStatus::Locker Locker;
  public:
+  typedef boost::intrusive_ptr<RawConnectionStatus> StatusPtr;
   RawConnection(const string &name,
                 boost::shared_ptr<Connection> connection,
                 int timeout);
-  void Disconnect();
-  bool IsConnected() {
-    return !status_.is_closing();
-  }
-  bool ScheduleWrite();
+  void Disconnect(StatusPtr status, bool async);
+  bool ScheduleWrite(StatusPtr status);
   // The push will take the ownership of the data
   template <typename T>
   inline bool PushData(const T &data) {
-    if (status_->mutex() == NULL) {
-      return false;
-    }
-    RawConnectionStatus::Locker locker(*status_->mutex());
-    if (status_->closing()) {
-      return false;
-    }
     boost::mutex::scoped_lock locker_incoming(incoming_mutex_);
     InternalPushData(data);
     return true;
   }
-  void InitSocket(boost::asio::ip::tcp::socket *socket);
-  const string name() {
+  void InitSocket(StatusPtr status, boost::asio::ip::tcp::socket *socket);
+  const string name() const {
     return name_;
   }
   virtual ~RawConnection();
@@ -130,22 +122,17 @@ class RawConnection : public boost::noncopyable {
     // Switch the working vector.
     incoming_index_ = 1 - incoming_index_;
   }
-  inline void OOBRecv(const boost::system::error_code &e, size_t n);
-  inline void OOBSend(const boost::system::error_code &e);
-  inline void Timeout(const boost::system::error_code &e);
-  inline void OOBWait();
-  inline void HandleRead(const boost::system::error_code& e, size_t bytes_transferred);
-  inline void HandleWrite(const boost::system::error_code& e, size_t byte_transferred);
+  inline void OOBRecv(StatusPtr status, const boost::system::error_code &e, size_t n);
+  inline void OOBSend(StatusPtr status, const boost::system::error_code &e);
+  inline void Timeout(StatusPtr status, const boost::system::error_code &e);
+  inline void OOBWait(StatusPtr status);
+  inline void HandleRead(StatusPtr status, const boost::system::error_code& e, size_t bytes_transferred);
+  inline void HandleWrite(StatusPtr status, const boost::system::error_code& e, size_t byte_transferred);
   virtual bool Decode(size_t byte_transferred) = 0;
-  void InternalStart();
-  void InternalDestroy(boost::intrusive_ptr<RawConnectionStatus> status,
-                       RawConnection *connection);
-   void InternalDestroy();
-
+  void StartOOBSend(StatusPtr status);
+  void StartOOBRecv(StatusPtr status);
   scoped_ptr<boost::asio::ip::tcp::socket> socket_;
   string name_;
-  boost::shared_ptr<boost::signals2::signal<void()> > close_signal_;
-  boost::intrusive_ptr<RawConnectionStatus> status_;
   boost::intrusive_ptr<Timer> send_timer_;
   boost::intrusive_ptr<Timer> recv_timer_;
 
@@ -160,6 +147,7 @@ class RawConnection : public boost::noncopyable {
   SharedConstBuffers duplex_[2];
   boost::mutex incoming_mutex_;
   boost::shared_ptr<Connection> connection_;
+  friend class Connection;
 };
 // Represents a protocol implementation.
 template <typename Decoder>

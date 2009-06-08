@@ -211,14 +211,14 @@ void RawProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor 
             << response_identify << " to response handler table, size: "
             << response_handler_table_.size();
   }
-  error = !PushData(EncodeMessage(&meta));
+  error = !connection_->PushData(EncodeMessage(&meta));
   if (error) {
     LOG(WARNING) << name() << " : " << "PushData error, connection may closed";
     reason = "PushDataError";
     goto failed;
   }
   RawConnTrace << " PushData, " << " incoming: " << incoming()->size();
-  error = !ScheduleWrite();
+  error = !connection_->ScheduleWrite();
   if (error) {
     LOG(WARNING) << name() << " : "
         << "ScheduleWrite error, connection may closed";

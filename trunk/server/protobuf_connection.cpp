@@ -84,24 +84,21 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
                                     const google::protobuf::Message *request,
                                     google::protobuf::Message *response,
                                     google::protobuf::Closure *done) {
-  {
-    boost::shared_lock<boost::shared_mutex> locker(mutex_);
-    RawProtobufConnection *impl = dynamic_cast<RawProtobufConnection*>(impl_);
-    if (impl && impl->IsConnected()) {
-      impl->CallMethod(method, controller, request, response, done);
-      return;
-    }
+  if (impl_.get() == NULL) {
+    LOG(WARNING) << "CallMethod but impl is not attached!";
     RpcController *rpc_controller = dynamic_cast<RpcController*>(
         controller);
     if (rpc_controller) {
       rpc_controller->SetFailed("Impl Connection is disconnected");
       rpc_controller->Notify();
     }
-    LOG(WARNING) << "Callmethod but connection is null";
+    if (done) {
+      done->Run();
+    }
+    return;
   }
-  if (done) {
-    done->Run();
-  }
+  RawProtobufConnection *impl = dynamic_cast<RawProtobufConnection*>(impl_.get());
+  impl->CallMethod(method, controller, request, response, done);
 }
 
 bool ProtobufConnection::Handle(
@@ -135,23 +132,17 @@ bool ProtobufConnection::Attach(
   boost::asio::ip::tcp::socket *socket) {
   static int i = 0;
   const string span_name = this->name() + boost::lexical_cast<string>(i++);
-  boost::unique_lock<boost::shared_mutex> locker(mutex_);
-  RawProtobufConnection *connection = new RawProtobufConnection(
+  RawConnection *raw_connection(new RawProtobufConnection(
       span_name, timeout_,
       shared_from_this(),
-      service_connection);
-  if (connection == NULL) {
+      service_connection));
+  if (raw_connection == NULL) {
     LOG(WARNING) << "Fail to allocate RawProtobufConnection, not enough memory?";
     delete socket;
     return false;
   }
 
-  connection->InitSocket(socket);
-  if (!connection->IsConnected()) {
-    connection->Disconnect();
-    return false;
-  } else {
-    impl_ = connection;
-    return true;
-  }
+  raw_connection->InitSocket(status_, socket);
+  impl_.reset(raw_connection);
+  return true;
 }

@@ -29,7 +29,13 @@ struct Base1 : public Base0, public boost::enable_shared_from_this<Base1<A> > {
     printf ("run base1");
   }
 };
-struct Base3 : public boost::enable_shared_from_this<Base3> {
+
+struct Base33 {
+  void Run() {
+    printf("base33!\n");
+  }
+};
+struct Base3 : public boost::enable_shared_from_this<Base3>, public Base33 {
   ~Base3() {
     printf ("~Base3");
   }
@@ -70,9 +76,12 @@ int main(int argc, char **argv) {
       new boost::function0<void>(boost::bind(&Base0::Run, b0->shared_from_this())));
   b0->Run();
   */
-  boost::shared_ptr<Base2<int> > b2(new Base2<int>);
-  boost::weak_ptr<Base2<int> > w = b2;
-  std::cout << "w:" << w.expired() << std::endl;
-  b2.reset();
-  std::cout << "w:" << w.expired() << std::endl;
+  boost::shared_ptr<Base3> b3(new Base3);
+  boost::weak_ptr<Base33> w33(b3->shared_from_this());
+  std::cout << w33.expired() << std::endl;;
+  b3.reset();
+  boost::shared_ptr<Base33> b33 = w33.lock();
+  b33->Run();
+  std::cout << w33.expired() << std::endl;;
+  b33->Run();
 }
