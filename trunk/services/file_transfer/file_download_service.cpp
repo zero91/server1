@@ -59,7 +59,7 @@ class DownloadTasker {
   }
   ChannelTable channels_;
   boost::mutex mutex_;
-  scoped_ptr<FileTransferClient> client_;
+  boost::shared_ptr<FileTransferClient> client_;
 };
 
 static string GetRegisterUniqueIdentify(
@@ -72,7 +72,7 @@ static string GetRegisterUniqueIdentify(
   return evp->digest<string>();
 }
 
-void FileDownloadServiceImpl::CloseChannel(
+void FileDownloadServiceImpl::ConnectionClosed(
     Connection *channel) {
   bool is_idle = false;
   {
@@ -158,8 +158,8 @@ void FileDownloadServiceImpl::RegisterDownload(
       }
     }
     channel_table_[channel].insert(unique_identify);
-    channel->RegisterCloseListener(boost::bind(
-        &FileDownloadServiceImpl::CloseChannel, this, channel));
+    channel->RegisterAsyncCloseListener(
+        shared_from_this());
   }
   if (init) {
     tasker->client()->Start();

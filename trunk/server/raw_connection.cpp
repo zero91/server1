@@ -109,8 +109,7 @@ RawConnection::RawConnection(const string &name,
     timeout_(timeout),
     incoming_index_(0),
     status_(new RawConnectionStatus),
-    connection_(connection),
-    close_signal_(new boost::signals2::signal<void()>) {
+    connection_(connection) {
 }
 
 void RawConnection::InitSocket(boost::asio::ip::tcp::socket *socket) {
@@ -149,9 +148,6 @@ void RawConnection::Disconnect() {
   }
   status_->set_closing();
   mut->unlock();
-  if (close_signal_.get()) {
-    close_signal_->disconnect_all_slots();
-  }
   if (recv_timer_.get()) {
     recv_timer_->cancel();
     recv_timer_.reset();
@@ -175,47 +171,6 @@ RawConnection::~RawConnection() {
 void RawConnection::InternalStart() {
   OOBSend(boost::system::error_code());
   OOBRecv(boost::system::error_code(), 0);
-}
-
-bool RawConnection::IsConnected() {
-  if (status_->mutex() == NULL) {
-    return false;
-  }
-  RawConnectionStatus::Locker locker(*status_->mutex());
-  return (!status_->closing()) &&status_->reading() && socket_ && socket_->is_open();
-}
-
-bool RawConnection::RegisterCloseListener(boost::function0<void> f) {
-  if (status_->mutex() == NULL) {
-    return false;
-  }
-  RawConnectionStatus::Locker locker(*status_->mutex());
-  if (status_->closing()) {
-    RawConnTrace << "is closing";
-    return false;
-  }
-  if (close_signal_.get() == NULL) {
-    return false;
-  }
-  close_signal_->connect(f);
-  return true;
-}
-
-bool RawConnection::RegisterCloseSignalByCallback(
-      CloseSignalRegister callback) {
-  if (status_->mutex() == NULL) {
-    return false;
-  }
-  RawConnectionStatus::Locker locker(*status_->mutex());
-  if (status_->closing()) {
-    RawConnTrace << "is closing";
-    return false;
-  }
-  if (close_signal_.get() == NULL) {
-    return false;
-  }
-  callback(close_signal_.get());
-  return true;
 }
 
 void RawConnection::InternalDestroy(boost::intrusive_ptr<RawConnectionStatus> status,
@@ -249,8 +204,6 @@ void RawConnection::InternalDestroy(boost::intrusive_ptr<RawConnectionStatus> st
     connection->socket_->close();
     connection->socket_.reset();
   }
-  (*connection->close_signal_)();
-  connection->close_signal_->disconnect_all_slots();
   delete connection;
 }
 

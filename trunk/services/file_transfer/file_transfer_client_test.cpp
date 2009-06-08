@@ -101,11 +101,11 @@ class FileTransferTest : public testing::Test {
   }
  protected:
   boost::shared_ptr<ProtobufConnection> server_connection_;
-  boost::scoped_ptr<Server> server_;
+  boost::shared_ptr<Server> server_;
   boost::shared_ptr<ClientConnection> client_connection_;
   boost::shared_ptr<FileTransfer::FileTransferService::Stub> client_stub_;
-  boost::scoped_ptr<FileTransferServiceImpl> file_transfer_service_;
-  boost::scoped_ptr<FileTransferClient> file_transfer_client_;
+  boost::shared_ptr<FileTransferServiceImpl> file_transfer_service_;
+  boost::shared_ptr<FileTransferClient> file_transfer_client_;
 };
 
 TEST_F(FileTransferTest, Test1) {
@@ -256,7 +256,7 @@ TEST_F(FileTransferTest, Test5) {
   ASSERT_GT(file_transfer_client_->Percent(), 0);
   ASSERT_LT(file_transfer_client_->Percent(), 1000);
   file_transfer_client_->Stop();
-  scoped_ptr<FileTransferClient> file_transfer_client2(
+  boost::shared_ptr<FileTransferClient> file_transfer_client2(
       FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
   ASSERT_EQ(file_transfer_client_->Percent(),
@@ -315,7 +315,7 @@ TEST_F(FileTransferTest, Test6) {
   ASSERT_LT(file_transfer_client_->Percent(), 1000);
   file_transfer_client_->Stop();
   VLOG(2) << "file transfer client stop";
-  scoped_ptr<FileTransferClient> file_transfer_client2(
+  boost::shared_ptr<FileTransferClient> file_transfer_client2(
       FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
   ASSERT_EQ(file_transfer_client_->Percent(),
@@ -382,7 +382,7 @@ TEST_F(FileTransferTest, Test7) {
   ASSERT_LT(file_transfer_client_->Percent(), 1000);
   file_transfer_client_->Stop();
   VLOG(1) << "file transfer client stop";
-  scoped_ptr<FileTransferClient> file_transfer_client2(
+  boost::shared_ptr<FileTransferClient> file_transfer_client2(
       FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
   ASSERT_EQ(file_transfer_client_->Percent(),

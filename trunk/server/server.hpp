@@ -17,13 +17,14 @@
 #include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
 #include "server/io_service_pool.hpp"
+#include "server/connection.hpp"
 #include "thread/notifier.hpp"
 class Connection;
 
 class AcceptorHandler;
 // The top-level class of the Server.
 class Server
-  : private boost::noncopyable {
+  : private boost::noncopyable, public boost::enable_shared_from_this<Server>, public Connection::AsyncCloseListener {
 private:
   static const int kDefaultDrainTimeout = LONG_MAX;
 public:
@@ -58,7 +59,7 @@ private:
   typedef hash_map<string, AcceptorResource> AcceptorTable;
   void ReleaseAcceptor(const string &host);
 
-  void RemoveConnection(Connection *);
+  void ConnectionClosed(Connection *);
   typedef hash_set<boost::shared_ptr<Connection> > ChannelTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,

@@ -16,7 +16,6 @@
 #include "boost/function.hpp"
 #include "boost/smart_ptr.hpp"
 #include "server/timer.hpp"
-#include "base/atomic.hpp"
 class RawConnectionStatus {
  public:
   typedef boost::shared_lock<boost::shared_mutex> Locker;
@@ -86,16 +85,13 @@ class RawConnectionStatus {
 class Connection;
 class RawConnection : public boost::noncopyable {
  public:
-  typedef boost::signals2::signal<void()> CloseSignal;
-  typedef boost::function1<void, CloseSignal*> CloseSignalRegister;
   RawConnection(const string &name,
                 boost::shared_ptr<Connection> connection,
                 int timeout);
   void Disconnect();
-  bool RegisterCloseListener(boost::function0<void> f);
-  bool RegisterCloseSignalByCallback(
-      CloseSignalRegister callback);
-  bool IsConnected();
+  bool IsConnected() {
+    return !status_.is_closing();
+  }
   bool ScheduleWrite();
   // The push will take the ownership of the data
   template <typename T>

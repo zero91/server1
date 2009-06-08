@@ -1,11 +1,5 @@
 #ifndef ATOMIC_HPP_
 #define ATOMIC_HPP_
-/*
-asm volatile ("lock;"
-              "decl %0":"=m"(status->count_) :"m" (status->count_));
-asm volatile ("lock;"
-              "incl %0":"=m"(status->count_) :"m" (status->count_));
-*/
 #define atomic_inc __sync_add_and_fetch
 #define atomic_dec __sync_sub_and_fetch
 #define atomic_compare_and_swap __sync_bool_compare_and_swap

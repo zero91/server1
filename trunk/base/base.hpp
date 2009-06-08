@@ -50,4 +50,5 @@ using namespace __gnu_cxx;
 #include "buffer.hpp"
 #include "hash.hpp"
 #include "closure.hpp"
+#include "atomic.hpp"
 #endif // BASE_H_

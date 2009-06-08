@@ -102,11 +102,11 @@ class FileTransferTest : public testing::Test {
     out.close();
   }
  protected:
-  boost::scoped_ptr<ProtobufConnection> server_connection_;
-  boost::scoped_ptr<Server> server_;
-  boost::scoped_ptr<ClientConnection> client_connection_;
+  boost::shared_ptr<ProtobufConnection> server_connection_;
+  boost::shared_ptr<Server> server_;
+  boost::shared_ptr<ClientConnection> client_connection_;
   boost::shared_ptr<FileTransfer::FileDownloadService::Stub> client_stub_;
-  boost::scoped_ptr<FileDownloadServiceImpl> file_download_service_;
+  boost::shared_ptr<FileDownloadServiceImpl> file_download_service_;
 };
 
 /*
@@ -159,9 +159,9 @@ TEST_F(FileTransferTest, Test2) {
   request.set_local_filename(local_filename);
   request.set_local_mac_address(GetMacAddress());
   RpcController controller;
-  scoped_ptr<FileTransferServiceImpl> local_file_transfer_service(
+  boost::shared_ptr<FileTransferServiceImpl> local_file_transfer_service(
       new FileTransferServiceImpl(FLAGS_local_root));
-  scoped_ptr<FileDownloadNotifyImpl> local_file_notify(
+  boost::shared_ptr<FileDownloadNotifyImpl> local_file_notify(
       new FileDownloadNotifyImpl);
   client_connection_->RegisterService(local_file_transfer_service.get());
   client_connection_->RegisterService(local_file_notify.get());

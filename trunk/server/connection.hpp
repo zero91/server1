@@ -21,6 +21,7 @@
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
 #include "thread/notifier.hpp"
+
 class RpcController : virtual public google::protobuf::RpcController {
  public:
   RpcController(const string name = "NoNameRpcController") : notifier_(new Notifier(name)) {
@@ -64,8 +65,11 @@ class Connection : virtual public RpcController,
   virtual public google::protobuf::RpcChannel,
   public boost::enable_shared_from_this<Connection> {
  public:
-  typedef RawConnection::CloseSignal CloseSignal;
-  Connection(const string &name) : RpcController(name), name_(name), impl_(NULL), id_(++global_connection_id) {
+  class AsyncCloseListener {
+   public:
+    virtual void ConnectionClosed(Connection *) = 0;
+  };
+  Connection(const string &name) : RpcController(name), name_(name), impl_(NULL), id_(++global_connection_id), listen_not_notified_(0) {
   }
 
   virtual bool RegisterService(google::protobuf::Service *service) = 0;
@@ -75,23 +79,11 @@ class Connection : virtual public RpcController,
                           google::protobuf::Message *response,
                           google::protobuf::Closure *done) = 0;
 
-  bool RegisterCloseSignalByCallback(
-      RawConnection::CloseSignalRegister callback) {
+  bool RegisterAsyncCloseListener(
+      boost::shared_ptr<AsyncCloseListener> listener) {
     boost::shared_lock<boost::shared_mutex> locker(mutex_);
-    if (impl_) {
-      impl_->RegisterCloseSignalByCallback(callback);
-      return true;
-    }
-    return false;
-  }
-
-  bool RegisterCloseListener(boost::function0<void> listener) {
-    boost::shared_lock<boost::shared_mutex> locker(mutex_);
-    if (impl_) {
-      impl_->RegisterCloseListener(listener);
-      return true;
-    }
-    return false;
+    listeners_.push_back(listener);
+    return true;
   }
 
   virtual void Disconnect() {
@@ -104,10 +96,10 @@ class Connection : virtual public RpcController,
     VLOG(2) << "Disconnected " << name();
   }
 
-  virtual bool IsConnected() {
+  virtual bool IsConnected() const {
     return impl_ && impl_->IsConnected();
   }
-  const string name() {
+  const string name() const {
     return impl_ ? impl_->name() : name_;
   }
   virtual ~Connection() {
@@ -133,14 +125,26 @@ class Connection : virtual public RpcController,
  protected:
   static int global_connection_id;
   void ImplClosed() {
+    VLOG(2) << name_ << "ImplClosed";
     mutex_.lock();
     impl_ = NULL;
     mutex_.unlock();
+    if (atomic_compare_and_swap(&listen_not_notified_, 0, 1)) {
+      for (int i = 0; i < listeners_.size(); ++i) {
+        VLOG(2) << "listener " << i << " expired: " << listeners_[i].expired();
+        if (!listeners_[i].expired()) {
+          listeners_[i].lock()->ConnectionClosed(this);
+        }
+      }
+      listeners_.clear();
+    }
   }
   string name_;
   RawConnection *impl_;
   boost::shared_mutex mutex_;
   friend class RawConnection;
   int id_;
+  volatile int listen_not_notified_;
+  vector<boost::weak_ptr<AsyncCloseListener> > listeners_;
 };
 #endif // NET2_CONNECTION_HPP_

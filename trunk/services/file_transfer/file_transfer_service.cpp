@@ -258,8 +258,7 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfo(
         check_table_[checkbook_dest_filename] = task_info;
         VLOG(1) << "Insert : " << checkbook_dest_filename << " to dest name table";
         task_info->inc_connection_count();
-        connection->RegisterCloseListener(boost::bind(
-            &FileTransferServiceImpl::CloseConnection, this, connection));
+        connection->RegisterAsyncCloseListener(shared_from_this());
       }
     } else {
       VLOG(1) << "GetTransferInfo from Destname table";
@@ -267,8 +266,7 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfo(
       connection_table_[connection][checkbook_dest_filename] = task_info;
       VLOG(1) << "Insert : " << connection << " : " << checkbook_dest_filename << " to connection table";
       task_info->inc_connection_count();
-      connection->RegisterCloseListener(boost::bind(
-          &FileTransferServiceImpl::CloseConnection, this, connection));
+      connection->RegisterAsyncCloseListener(shared_from_this());
     }
   } else {
     VLOG(1) << "GetTransferInfo from ConnectionTable";
@@ -315,8 +313,8 @@ void FileTransferServiceImpl::ReceiveSlice(
   VLOG(2) << "Receive slice: " << request->slice().index() << " succeed channel: " << channel->name();
 }
 
-void FileTransferServiceImpl::CloseConnection(
-    const Connection *connection) {
+void FileTransferServiceImpl::ConnectionClosed(
+    Connection *connection) {
   VLOG(2) << "CloseConnection: " << connection;
   boost::mutex::scoped_lock locker(table_mutex_);
   ConnectionToCheckBookTable::iterator it = connection_table_.find(connection);

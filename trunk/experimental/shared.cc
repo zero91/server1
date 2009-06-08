@@ -3,6 +3,7 @@
 #include <boost/scoped_ptr.hpp>
 #include <boost/function.hpp>
 #include <boost/bind.hpp>
+#include <iostream>
 
 struct Base0 : public boost::function1<void, boost::function0<void> >, boost::enable_shared_from_this<Base0> {
   virtual void Run() {
@@ -69,8 +70,9 @@ int main(int argc, char **argv) {
       new boost::function0<void>(boost::bind(&Base0::Run, b0->shared_from_this())));
   b0->Run();
   */
-  boost::scoped_ptr<Base2<int> > b2(new Base2<int>);
-  Base1<int> * b22 = b2.get();
-//  delete b22;
-  Base2<int> *b33 = dynamic_cast<Base2<int>*>(b22);
+  boost::shared_ptr<Base2<int> > b2(new Base2<int>);
+  boost::weak_ptr<Base2<int> > w = b2;
+  std::cout << "w:" << w.expired() << std::endl;
+  b2.reset();
+  std::cout << "w:" << w.expired() << std::endl;
 }

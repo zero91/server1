@@ -77,6 +77,7 @@ link_flags += ' -g'
 
 env = DefaultEnvironment()
 env['LINKCOM'] = "$LINK -o $TARGET $SOURCES $LINKFLAGS $_LIBDIRFLAGS $_LIBFLAGS -Wl,-Bdynamic"
+env.Append(CPPFLAGS='-march=i486 ')
 env.Append(CPPFLAGS='-g')
 #env.Append(CPPFLAGS='-O2')
 env.Append(CPPFLAGS=' -static')

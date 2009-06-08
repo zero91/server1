@@ -8,7 +8,7 @@
 #include "services/file_transfer/file_transfer.pb.h"
 class FileTransferClient;
 class DownloadTasker;
-class FileDownloadServiceImpl : public FileTransfer::FileDownloadService {
+class FileDownloadServiceImpl : public FileTransfer::FileDownloadService , public Connection::AsyncCloseListener, public boost::enable_shared_from_this<FileDownloadServiceImpl> {
  public:
   FileDownloadServiceImpl(const string &doc_root,
                           int threadpool_size)
@@ -23,7 +23,7 @@ class FileDownloadServiceImpl : public FileTransfer::FileDownloadService {
   }
   ~FileDownloadServiceImpl();
  private:
-  void CloseChannel(Connection *channel);
+  void ConnectionClosed(Connection *channel);
   typedef hash_map<Connection*, hash_set<string> > ChannelTable;
   typedef hash_map<string, boost::shared_ptr<DownloadTasker> >
     DownloadTaskerTable;

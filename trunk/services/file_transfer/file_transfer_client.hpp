@@ -10,7 +10,7 @@
 #include <boost/iostreams/device/mapped_file.hpp>
 class TransferTask;
 class SliceStatus;
-class FileTransferClient {
+class FileTransferClient : public boost::enable_shared_from_this<FileTransferClient> {
  public:
   void PushChannel(Connection *channel);
   void Start();
@@ -47,7 +47,7 @@ class FileTransferClient {
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
  private:
-  static const int kDefaultTimeOutMs = 50000;
+  static const int kDefaultTimeOutMs = 10000;
   ThreadPool *GetThreadPool() {
     if (out_threadpool_ == NULL) {
       return &pool_;

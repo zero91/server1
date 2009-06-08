@@ -232,7 +232,7 @@ failed:
     response_handler_table_.erase(response_identify);
   }
   if (rpc_controller) {
-    rpc_controller->SetFailed("AppendToString error");
+    rpc_controller->SetFailed(reason);
     rpc_controller->Notify();
   }
   if (done) {

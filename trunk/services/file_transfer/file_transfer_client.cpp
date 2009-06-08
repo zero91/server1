@@ -21,9 +21,10 @@ class SliceStatus {
   mutable Status status_;
 };
 
-class TransferTask : public boost::enable_shared_from_this<TransferTask> {
+class TransferTask : public boost::enable_shared_from_this<TransferTask>, public Connection::AsyncCloseListener {
  public:
-  static boost::shared_ptr<TransferTask> Create(FileTransferClient *file_transfer,
+  static boost::shared_ptr<TransferTask> Create(
+      boost::weak_ptr<FileTransferClient> file_transfer,
       Connection *channel, int id, int timeout, boost::asio::io_service &io_service);
 
   int id() const {
@@ -44,14 +45,22 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
     VLOG(2) << "~TransferTask";
     timer_->cancel();
   }
-  void ChannelClosed() {
+  void ConnectionClosed(Connection *connection) {
+    if (connection != connection_.get()) {
+      LOG(WARNING) << "Expired connection " << connection->name();
+      return;
+    }
     VLOG(2) << "ChannelClosed channel: " << connection_->name() << " tasker:" << id_ << " slice: " << (status_.get() ? status_->index() : -1);
     timer_->cancel();
-    file_transfer_->ChannelClosed(shared_from_this(), status_);
+    if (file_transfer_.expired()) {
+      LOG(WARNING) << "FileTransfer had expired";
+      return;
+    }
+    file_transfer_.lock()->ChannelClosed(shared_from_this(), status_);
   }
  private:
   TransferTask(
-      FileTransferClient *file_transfer,
+      boost::weak_ptr<FileTransferClient> file_transfer,
       boost::shared_ptr<Connection> connection, int id, int timeout,
       boost::asio::io_service &io_service);
   void Timeout(boost::intrusive_ptr<Timer> timer,
@@ -64,7 +73,7 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask> {
   FileTransfer::SliceResponse slice_response_;
   FileTransfer::CheckBookResponse checkbook_response_;
   RpcController controller_;
-  FileTransferClient *file_transfer_;
+  boost::weak_ptr<FileTransferClient> file_transfer_;
   boost::shared_ptr<SliceStatus> status_;
   boost::intrusive_ptr<Timer> timer_;
   int id_;
@@ -96,7 +105,7 @@ void FileTransferClient::PushChannel(Connection *channel) {
     return;
   }
   boost::shared_ptr<TransferTask> tasker(TransferTask::Create(
-          this,
+          shared_from_this(),
           channel,
           id++, timeout_, *io_service_));
   {
@@ -369,7 +378,7 @@ void TransferTask::Timeout(boost::intrusive_ptr<Timer> timer,
     connection_->Disconnect();
     VLOG(2) << "slice " << status_->index() << " timeouted, status: "
             << status_->status();
-    file_transfer_->ChannelClosed(shared_from_this(), status_);
+    file_transfer_.lock()->ChannelClosed(shared_from_this(), status_);
   }
 }
 
@@ -403,7 +412,7 @@ void TransferTask::SyncSliceDone() {
     ret = true;
   }
   VLOG(2) << "SyncSliceDone: " << id() << " " << status_->index() << " " << ret;
-  file_transfer_->SyncSliceDone(shared_from_this(), ret, status_);
+  file_transfer_.lock()->SyncSliceDone(shared_from_this(), ret, status_);
 }
 
 void FileTransferClient::SyncSliceDone(
@@ -425,28 +434,20 @@ void FileTransferClient::SyncSliceDone(
 }
 
 TransferTask::TransferTask(
-    FileTransferClient *file_transfer,
+    boost::weak_ptr<FileTransferClient> file_transfer,
     boost::shared_ptr<Connection> connection, int id, int timeout, boost::asio::io_service &io_service)
     : connection_(connection), stub_(connection_.get()), id_(id), file_transfer_(file_transfer), timeout_(timeout), timer_(
         new Timer(io_service)) {
 }
 
-static void RegisterCloseSignal(
-    Connection::CloseSignal *sig,
-    boost::shared_ptr<TransferTask> tasker) {
-  sig->connect(
-      Connection::CloseSignal::slot_type(
-          &TransferTask::ChannelClosed, tasker.get()).track(tasker));
-}
-
 boost::shared_ptr<TransferTask> TransferTask::Create(
-    FileTransferClient *file_transfer,
+    boost::weak_ptr<FileTransferClient> file_transfer,
     Connection *connection, int id, int timeout, boost::asio::io_service &io_service) {
   boost::shared_ptr<TransferTask> tasker(new TransferTask(
       file_transfer,
       connection->shared_from_this(), id, timeout, io_service));
-  if (!connection->RegisterCloseSignalByCallback(
-      boost::bind(&RegisterCloseSignal, _1, tasker))) {
+  if (!connection->RegisterAsyncCloseListener(
+      tasker)) {
     LOG(WARNING) << "Fail to register close signal";
     tasker.reset();
   }

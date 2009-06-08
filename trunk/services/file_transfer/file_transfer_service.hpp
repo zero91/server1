@@ -10,7 +10,10 @@
 class FileTransferClient;
 class TransferInfo;
 class Connection;
-class FileTransferServiceImpl : public FileTransfer::FileTransferService {
+class FileTransferServiceImpl :
+  public FileTransfer::FileTransferService,
+  public Connection::AsyncCloseListener,
+  public boost::enable_shared_from_this<FileTransferServiceImpl> {
  public:
   FileTransferServiceImpl(const string &doc_root) : doc_root_(doc_root) {
   }
@@ -35,7 +38,7 @@ class FileTransferServiceImpl : public FileTransfer::FileTransferService {
     Connection *connection,
     const string &checkbook_dest_filename);
   bool SaveSliceRequest(const FileTransfer::SliceRequest *slice_request);
-  void CloseConnection(const Connection *connection);
+  void ConnectionClosed(Connection *connection);
   boost::mutex table_mutex_;
   typedef hash_map<string, boost::shared_ptr<TransferInfo> > CheckBookTable;
   typedef hash_map<const Connection*, CheckBookTable> ConnectionToCheckBookTable;

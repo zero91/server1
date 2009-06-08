@@ -139,10 +139,11 @@ void Server::Stop() {
   CHECK(channel_table_.empty());
 }
 
-void Server::RemoveConnection(Connection *connection) {
+void Server::ConnectionClosed(Connection *connection) {
   boost::mutex::scoped_lock locker(channel_table_mutex_);
   int size1 = channel_table_.size();
   boost::shared_ptr<Connection> conn = connection->shared_from_this();
+  VLOG(2) << "ConnectionClosed: " << conn.get();
   if (channel_table_.find(conn) != channel_table_.end()) {
     channel_table_.erase(conn);
     notifier_->Dec(1);
@@ -165,13 +166,14 @@ void Server::HandleAccept(const boost::system::error_code& e,
   // The socket ownership transfer to Connection.
   {
     boost::mutex::scoped_lock locker(channel_table_mutex_);
-    if (!span_connection->RegisterCloseListener(boost::bind(
-        &Server::RemoveConnection, this, span_connection.get()))) {
-      LOG(WARNING) << "Register " << span_connection->name() << "Failed, it may close";
+    boost::shared_ptr<Server> s = this->shared_from_this();
+    if (!span_connection->RegisterAsyncCloseListener(s)) {
+      LOG(WARNING) << "RegisterAsyncCloseListener failed";
       span_connection->Disconnect();
       return;
     }
     channel_table_.insert(span_connection);
+    VLOG(2) << "Insert: " << span_connection.get();
     notifier_->Inc(1);
   }
   VLOG(2) << "Insert " << span_connection->name();

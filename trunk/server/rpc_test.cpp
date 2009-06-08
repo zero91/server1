@@ -78,7 +78,7 @@ class EchoTest : public testing::Test {
  protected:
   boost::shared_ptr<ProtobufConnection> server_connection_;
   boost::shared_ptr<ClientConnection> client_connection_;
-  boost::scoped_ptr<Server> server_;
+  boost::shared_ptr<Server> server_;
   EchoServiceImpl echo_service_;
   boost::scoped_ptr<Hello::EchoService::Stub> stub_;
   boost::scoped_ptr<google::protobuf::Closure> done_;
