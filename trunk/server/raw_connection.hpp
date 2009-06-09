@@ -23,7 +23,6 @@ class RawConnectionStatus {
   }
   ~RawConnectionStatus() {
     CHECK_EQ(intrusive_count_, 0);
-    status_ = 0;
   }
   bool reading() const {
     return status_ & READING;
@@ -88,8 +87,7 @@ class RawConnection : public boost::noncopyable {
  public:
   typedef boost::intrusive_ptr<RawConnectionStatus> StatusPtr;
   RawConnection(const string &name,
-                boost::shared_ptr<Connection> connection,
-                int timeout);
+                boost::shared_ptr<Connection> connection);
   void Disconnect(StatusPtr status, bool async);
   bool ScheduleWrite(StatusPtr status);
   // The push will take the ownership of the data
@@ -99,7 +97,9 @@ class RawConnection : public boost::noncopyable {
     InternalPushData(data);
     return true;
   }
-  void InitSocket(StatusPtr status, boost::asio::ip::tcp::socket *socket);
+  void InitSocket(StatusPtr status,
+                  boost::asio::ip::tcp::socket *socket,
+                  boost::shared_ptr<Timer> timer);
   const string name() const {
     return name_;
   }
@@ -117,26 +117,22 @@ class RawConnection : public boost::noncopyable {
     return &duplex_[1 - incoming_index_];
   }
   void SwitchIO() {
-//    boost::mutex::scoped_lock locker(incoming_mutex_);
-    CHECK(outcoming()->empty());
+//    CHECK(outcoming()->empty());
     // Switch the working vector.
     incoming_index_ = 1 - incoming_index_;
   }
   inline void OOBRecv(StatusPtr status, const boost::system::error_code &e, size_t n);
   inline void OOBSend(StatusPtr status, const boost::system::error_code &e);
-  inline void Timeout(StatusPtr status, const boost::system::error_code &e);
-  inline void OOBWait(StatusPtr status);
   inline void HandleRead(StatusPtr status, const boost::system::error_code& e, size_t bytes_transferred);
   inline void HandleWrite(StatusPtr status, const boost::system::error_code& e, size_t byte_transferred);
   virtual bool Decode(size_t byte_transferred) = 0;
   void StartOOBSend(StatusPtr status);
   void StartOOBRecv(StatusPtr status);
+  void StartOOBWait(StatusPtr status);
   scoped_ptr<boost::asio::ip::tcp::socket> socket_;
   string name_;
-  boost::intrusive_ptr<Timer> send_timer_;
-  boost::intrusive_ptr<Timer> recv_timer_;
+  boost::shared_ptr<Timer> send_timer_;
 
-  int timeout_;
   char heartbeat_;
 
   static const int kBufferSize = 8192;
@@ -154,9 +150,8 @@ template <typename Decoder>
 class RawConnectionImpl : public RawConnection {
 public:
   RawConnectionImpl(const string &name,
-                boost::shared_ptr<Connection> connection,
-                int timeout)
-    : RawConnection(name, connection, timeout) {
+                boost::shared_ptr<Connection> connection)
+    : RawConnection(name, connection) {
   }
 protected:
   inline bool Decode(size_t bytes_transferred);

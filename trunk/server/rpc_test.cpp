@@ -89,6 +89,7 @@ TEST_F(EchoTest, Test1) {
   Hello::EchoResponse response;
   request.set_question("hello");
   RpcController controller;
+  CHECK(client_connection_->IsConnected());
   stub_->Echo(&controller,
               &request,
               &response,

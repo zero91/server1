@@ -108,6 +108,7 @@ class ListenTest : public testing::Test {
     CHECK(!client_connection_->IsConnected());
     CHECK(client_connection_->Connect());
     aborted_ = 0;
+    called_ = 0;
   }
 
   void TearDown() {
@@ -139,7 +140,9 @@ class ListenTest : public testing::Test {
 //      CHECK_EQ(controller->ErrorText(), "Abort");
       pcqueue_->Push(true);
       ++aborted_;
+      VLOG(0) << "abord: " << aborted_ << " called: " << called_;
     }
+    ++called_;
   }
 
   void ClientThreadRun(boost::shared_ptr<Hello::EchoService2::Stub> client_stub) {
@@ -165,6 +168,7 @@ class ListenTest : public testing::Test {
   boost::shared_ptr<PCQueue<bool> > pcqueue_;
   boost::scoped_ptr<EchoService2Impl> echo_service_;
   int aborted_;
+  int called_;
 };
 
 TEST_F(ListenTest, Test1) {

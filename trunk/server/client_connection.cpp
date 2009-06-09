@@ -33,6 +33,7 @@ bool ClientConnection::Connect() {
     return false;
   }
   CHECK(impl_ == NULL);
-  Attach(this, socket);
+  boost::shared_ptr<Timer> timer = GetIOServicePool()->GetTimer(kTimeoutMs);
+  Attach(timer, this, socket);
   return true;
 }

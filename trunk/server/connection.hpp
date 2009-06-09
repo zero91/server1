@@ -131,7 +131,8 @@ class Connection : virtual public RpcController,
   }
   // Create a connection from a socket.
   // The protocol special class should implment it.
-  virtual boost::shared_ptr<Connection> Span(boost::asio::ip::tcp::socket *socket) = 0;
+  virtual boost::shared_ptr<Connection> Span(
+      boost::shared_ptr<Timer> timer,boost::asio::ip::tcp::socket *socket) = 0;
  protected:
   static int global_connection_id;
   void ImplClosed() {
@@ -145,6 +146,7 @@ class Connection : virtual public RpcController,
       }
     }
     listeners_.clear();
+    impl_.reset();
   }
   boost::intrusive_ptr<RawConnectionStatus> status_;
   string name_;

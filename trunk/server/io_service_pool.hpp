@@ -12,6 +12,7 @@
 #include "base/base.hpp"
 #include <boost/thread.hpp>
 #include "thread/threadpool.hpp"
+#include "server/timer.hpp"
 /// A pool of io_service objects.
 class IOServicePool : private boost::noncopyable {
 public:
@@ -36,6 +37,7 @@ public:
 
   /// Get an io_service to use.
   boost::asio::io_service &get_io_service();
+  boost::shared_ptr<Timer> GetTimer(int timeout);
 
 private:
 
@@ -45,12 +47,12 @@ private:
   /// The work that keeps the io_services running.
   vector<boost::shared_ptr<boost::asio::io_service::work> > work_;
 
+  int num_io_services_;
+  int num_threads_;
   int next_io_service_;
 
   ThreadPool threadpool_;
   boost::mutex mutex_;
-  int num_io_services_;
-  int num_threads_;
   string name_;
 };
 #endif // NET2_IO_SERVICE_POOL_HPP_

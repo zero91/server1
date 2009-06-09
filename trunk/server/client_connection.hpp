@@ -44,6 +44,12 @@ class ClientConnection : public ProtobufConnection {
     VLOG(2) << "~ClientConnection";
   }
  private:
+  IOServicePool *GetIOServicePool() {
+    if (out_io_service_pool_) {
+      return out_io_service_pool_;
+    }
+    return &io_service_pool_;
+  }
   boost::asio::io_service &GetIOService() {
     if (out_io_service_pool_) {
       return out_io_service_pool_->get_io_service();

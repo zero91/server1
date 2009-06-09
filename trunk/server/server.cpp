@@ -9,7 +9,7 @@
 
 #include "glog/logging.h"
 #include "server/server.hpp"
-#include "server/connection.hpp"
+#include "server/protobuf_connection.hpp"
 #include <boost/bind.hpp>
 class AcceptorHandler {
  public:
@@ -29,13 +29,7 @@ class AcceptorHandler {
         boost::asio::io_service &io_service = socket->get_io_service();
         *socket_pptr_ = new boost::asio::ip::tcp::socket(io_service);
         acceptor_->async_accept(**socket_pptr_, *this);
-        boost::shared_ptr<Connection> connection = connection_template_->Span(
-            socket);
-        if (connection.get() != NULL) {
-          server_->HandleAccept(e, connection);
-        } else {
-          LOG(WARNING) << "Span a NULL connection!";
-        }
+        server_->HandleAccept(e, socket, connection_template_);
       } else {
         acceptor_->async_accept(**socket_pptr_, *this);
       }
@@ -154,28 +148,36 @@ void Server::ConnectionClosed(Connection *connection) {
 }
 
 void Server::HandleAccept(const boost::system::error_code& e,
-                          boost::shared_ptr<Connection> span_connection) {
+                          boost::asio::ip::tcp::socket *socket,
+                          Connection *connection_template) {
   VLOG(2) << "HandleAccept";
   stop_mutex_.lock_shared();
   if (!io_service_pool_.IsRunning()) {
-    span_connection->Disconnect();
+    delete socket;
     stop_mutex_.unlock_shared();
     VLOG(2) << "HandleAccept but already stopped.";
     return;
   }
   // The socket ownership transfer to Connection.
+  boost::shared_ptr<Timer> timer = io_service_pool_.GetTimer(ProtobufConnection::kTimeoutMs);
+  boost::shared_ptr<Connection> connection = connection_template->Span(
+      timer, socket);
+  if (connection.get() == NULL) {
+    LOG(WARNING) << "Span a NULL connection!";
+    return;
+  }
   {
     boost::mutex::scoped_lock locker(channel_table_mutex_);
     boost::shared_ptr<Server> s = this->shared_from_this();
-    if (!span_connection->RegisterAsyncCloseListener(s)) {
+    if (!connection->RegisterAsyncCloseListener(s)) {
       LOG(WARNING) << "RegisterAsyncCloseListener failed";
-      span_connection->Disconnect();
+      connection->Disconnect();
       return;
     }
-    channel_table_.insert(span_connection);
-    VLOG(2) << "Insert: " << span_connection.get();
+    channel_table_.insert(connection);
+    VLOG(2) << "Insert: " << connection.get();
     notifier_->Inc(1);
   }
-  VLOG(2) << "Insert " << span_connection->name();
+  VLOG(2) << "Insert " << connection->name();
   stop_mutex_.unlock_shared();
 }

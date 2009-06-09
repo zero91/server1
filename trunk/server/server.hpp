@@ -63,7 +63,8 @@ private:
   typedef hash_set<boost::shared_ptr<Connection> > ChannelTable;
   // Handle completion of an asynchronous accept operation.
   void HandleAccept(const boost::system::error_code& e,
-                    boost::shared_ptr<Connection> span_connection);
+                    boost::asio::ip::tcp::socket *socket,
+                    Connection *connection_template);
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
   friend class AcceptorHandler;

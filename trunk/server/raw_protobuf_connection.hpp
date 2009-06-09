@@ -89,7 +89,7 @@ private:
   ProtobufLineFormat::MetaData meta_;
 };
 
-class RawProtobufConnection : public RawConnectionImpl<ProtobufDecoder>, public google::protobuf::RpcChannel {
+class RawProtobufConnection : public RawConnectionImpl<ProtobufDecoder> {
  private:
   typedef boost::function2<void,
           const ProtobufDecoder*,
@@ -98,13 +98,13 @@ class RawProtobufConnection : public RawConnectionImpl<ProtobufDecoder>, public 
  public:
   RawProtobufConnection(
       const string &name,
-      int timeout,
       boost::shared_ptr<Connection> connection,
       ProtobufConnection *service_connection);
   ~RawProtobufConnection();
 
   // Thread safe.
-  void CallMethod(const google::protobuf::MethodDescriptor *method,
+  void CallMethod(RawConnection::StatusPtr status,
+                  const google::protobuf::MethodDescriptor *method,
                   google::protobuf::RpcController *controller,
                   const google::protobuf::Message *request,
                   google::protobuf::Message *response,

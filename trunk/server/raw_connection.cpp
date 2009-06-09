@@ -43,14 +43,17 @@ class ExecuteHandler {
 class WaitHandler {
  public:
   WaitHandler(const RawConnection::StatusPtr &status,
+              boost::shared_ptr<Timer> timer,
               RawConnection *connection,
-              boost::intrusive_ptr<Timer> timer,
             void (RawConnection::*member)(
                 RawConnection::StatusPtr status,
                 const boost::system::error_code&))
     : status_(status), connection_(connection), timer_(timer), member_(member) {
   }
   void operator()(const boost::system::error_code& e) {
+    if (status_->closing()) {
+      return;
+    }
     status_->mutex().lock_shared();
     if (status_->closing()) {
       status_->mutex().unlock_shared();
@@ -61,7 +64,7 @@ class WaitHandler {
  private:
   RawConnection::StatusPtr status_;
   RawConnection *connection_;
-  boost::intrusive_ptr<Timer> timer_;
+  boost::shared_ptr<Timer> timer_;
   void (RawConnection::*member_)(RawConnection::StatusPtr status,
                                  const boost::system::error_code&);
 };
@@ -92,16 +95,16 @@ class ReadHandler {
 typedef ReadHandler WriteHandler;
 
 RawConnection::RawConnection(const string &name,
-                             boost::shared_ptr<Connection> connection,
-                             int timeout)
+                             boost::shared_ptr<Connection> connection)
   : name_(name),
-    timeout_(timeout),
     incoming_index_(0),
     connection_(connection) {
 }
 
-void RawConnection::InitSocket(StatusPtr status,
-                               boost::asio::ip::tcp::socket *socket) {
+void RawConnection::InitSocket(
+    StatusPtr status,
+    boost::asio::ip::tcp::socket *socket,
+    boost::shared_ptr<Timer> timer) {
   RawConnectionStatus::Locker locker(status->mutex());
   CHECK(!status->closing());
   RawConnTrace;
@@ -113,45 +116,40 @@ void RawConnection::InitSocket(StatusPtr status,
   // Put the socket into non-blocking mode.
   boost::asio::ip::tcp::socket::non_blocking_io non_blocking_io(true);
   socket_->io_control(non_blocking_io);
-  send_timer_.reset(new Timer(socket->get_io_service()));
-  recv_timer_.reset(new Timer(socket->get_io_service()));
-  ExecuteHandler send_handler(status, this, &RawConnection::StartOOBSend);
-  ExecuteHandler recv_handler(status, this, &RawConnection::StartOOBRecv);
-  socket_->get_io_service().post(send_handler);
-  socket_->get_io_service().post(recv_handler);
+  send_timer_ = timer;
+  StartOOBSend(status);
+  StartOOBRecv(status);
   status->set_reading();
   ReadHandler h(status, this, &RawConnection::HandleRead);
   socket_->async_read_some(boost::asio::buffer(buffer_), h);
 }
 
 void RawConnection::Disconnect(StatusPtr status, bool async) {
+  if (status->closing()) {
+    RawConnTrace << "Already closing";
+    return;
+  }
   boost::shared_mutex *mut = &status->mutex();
   mut->unlock_shared();
   mut->lock_upgrade();
   mut->unlock_upgrade_and_lock();
   if (status->closing()) {
-    RawConnTrace << "Already closing";
+    RawConnTrace << "Already already closing";
     mut->unlock();
     return;
   }
   status->set_closing();
   mut->unlock();
-  if (recv_timer_.get()) {
-    recv_timer_->cancel();
-    recv_timer_.reset();
-  }
-  if (send_timer_.get()) {
-    send_timer_->cancel();
-    send_timer_.reset();
-  }
+  send_timer_.reset();
   if (socket_.get()) {
     socket_->close();
     socket_.reset();
   }
-  if (async) {
-    connection_->ImplClosed();
-  }
+  boost::shared_ptr<Connection> conn = connection_;
   connection_.reset();
+  if (async) {
+    conn->ImplClosed();
+  }
 }
 
 RawConnection::~RawConnection() {
@@ -159,12 +157,17 @@ RawConnection::~RawConnection() {
 }
 
 void RawConnection::StartOOBSend(StatusPtr status) {
-  OOBSend(status, boost::system::error_code());
+  WaitHandler h(status, send_timer_, this, &RawConnection::OOBSend);
+  send_timer_->Wait(h);
 }
 
 void RawConnection::StartOOBRecv(StatusPtr status) {
-  OOBRecv(status, boost::system::error_code(), 0);
+  ReadHandler h(status, this, &RawConnection::OOBRecv);
+  socket_->async_receive(boost::asio::buffer(&heartbeat_, sizeof(heartbeat_)),
+                         boost::asio::socket_base::message_out_of_band,
+                         h);
 }
+
 void RawConnection::OOBSend(StatusPtr status,
                             const boost::system::error_code &e) {
   if (e != boost::asio::error::operation_aborted) {
@@ -177,9 +180,7 @@ void RawConnection::OOBSend(StatusPtr status,
       Disconnect(status, true);
       return;
     }
-    send_timer_->expires_from_now(boost::posix_time::milliseconds(timeout_));
-    WaitHandler h(status, this, send_timer_, &RawConnection::OOBSend);
-    send_timer_->async_wait(h);
+    StartOOBSend(status);
   }
   status->mutex().unlock_shared();
 }
@@ -191,32 +192,8 @@ void RawConnection::OOBRecv(
     Disconnect(status, true);
     return;
   }
-
-  OOBWait(status);
-
-  ReadHandler h(status, this, &RawConnection::OOBRecv);
-  socket_->async_receive(boost::asio::buffer(&heartbeat_, sizeof(heartbeat_)),
-                         boost::asio::socket_base::message_out_of_band,
-                         h);
+  StartOOBRecv(status);
   status->mutex().unlock_shared();
-}
-
-void RawConnection::Timeout(
-    StatusPtr status,
-    const boost::system::error_code &e) {
-  if (e != boost::asio::error::operation_aborted) {
-    LOG(WARNING) << name() << " : " << "Timeouted";
-    Disconnect(status, true);
-    return;
-  }
-  status->mutex().unlock_shared();
-}
-
-void RawConnection::OOBWait(StatusPtr status) {
-  recv_timer_->expires_from_now(boost::posix_time::milliseconds(
-      timeout_ * kRecvDelayFactor));
-  WaitHandler h(status, this, recv_timer_, &RawConnection::Timeout);
-  recv_timer_->async_wait(h);
 }
 
 void RawConnection::HandleRead(StatusPtr status,
@@ -239,7 +216,6 @@ void RawConnection::HandleRead(StatusPtr status,
   socket_->async_read_some(
       boost::asio::buffer(buffer_),
       h);
-  OOBWait(status);
   status->mutex().unlock_shared();
 }
 

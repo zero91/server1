@@ -84,8 +84,9 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
                                     const google::protobuf::Message *request,
                                     google::protobuf::Message *response,
                                     google::protobuf::Closure *done) {
-  if (impl_.get() == NULL) {
-    LOG(WARNING) << "CallMethod but impl is not attached!";
+  RawConnectionStatus::Locker locker(status_->mutex());
+  if (status_->closing() || impl_.get() == NULL) {
+    VLOG(2) << "CallMethod " << name() << " but is closing";
     RpcController *rpc_controller = dynamic_cast<RpcController*>(
         controller);
     if (rpc_controller) {
@@ -98,7 +99,7 @@ void ProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *me
     return;
   }
   RawProtobufConnection *impl = dynamic_cast<RawProtobufConnection*>(impl_.get());
-  impl->CallMethod(method, controller, request, response, done);
+  impl->CallMethod(status_, method, controller, request, response, done);
 }
 
 bool ProtobufConnection::Handle(
@@ -119,21 +120,23 @@ bool ProtobufConnection::Handle(
 }
 
 boost::shared_ptr<Connection> ProtobufConnection::Span(
+    boost::shared_ptr<Timer> timer,
     boost::asio::ip::tcp::socket *socket) {
-  boost::shared_ptr<ProtobufConnection> connection(new ProtobufConnection(name() + ".span", timeout_));
-  if (!connection->Attach(this, socket)) {
+  boost::shared_ptr<ProtobufConnection> connection(new ProtobufConnection(name() + ".span"));
+  if (!connection->Attach(timer, this, socket)) {
     connection.reset();
   }
   return connection;
 }
 
 bool ProtobufConnection::Attach(
+  boost::shared_ptr<Timer> timer,
   ProtobufConnection *service_connection,
   boost::asio::ip::tcp::socket *socket) {
   static int i = 0;
   const string span_name = this->name() + boost::lexical_cast<string>(i++);
   RawConnection *raw_connection(new RawProtobufConnection(
-      span_name, timeout_,
+      span_name,
       shared_from_this(),
       service_connection));
   if (raw_connection == NULL) {
@@ -142,7 +145,7 @@ bool ProtobufConnection::Attach(
     return false;
   }
 
-  raw_connection->InitSocket(status_, socket);
+  raw_connection->InitSocket(status_, socket, timer);
   impl_.reset(raw_connection);
   return true;
 }

@@ -21,7 +21,7 @@ class ThreadPool : public boost::noncopyable, public Executor {
     CHECK(!IsRunning());
   }
   void Start() {
-    VLOG(1) << name() << " Start.";
+    VLOG(1) << name() << " Start, size:" << size_;
     boost::mutex::scoped_lock locker(run_mutex_);
     if (!threads_.empty()) {
       VLOG(1) << name() << " Running.";

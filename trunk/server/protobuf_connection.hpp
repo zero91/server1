@@ -23,18 +23,21 @@ class ProtobufConnection : public Connection {
           const ProtobufDecoder*,
           boost::shared_ptr<Connection> > HandlerFunctor;
   typedef hash_map<uint64, HandlerFunctor> HandlerTable;
-  static const int kDefaultTimeoutMs = 30000;
  public:
-  explicit ProtobufConnection(const string &name, int timeout = kDefaultTimeoutMs)
-    : Connection(name), timeout_(timeout) {
+  static const int kTimeoutMs = 3000;
+  explicit ProtobufConnection(const string &name)
+    : Connection(name) {
     VLOG(2) << "New protobuf connection: " << name;
   }
 
   ~ProtobufConnection() {
   }
   virtual boost::shared_ptr<Connection> Span(
+      boost::shared_ptr<Timer> timer,
       boost::asio::ip::tcp::socket *socket);
-  bool Attach(ProtobufConnection *service_connection,
+  bool Attach(
+      boost::shared_ptr<Timer> timer,
+      ProtobufConnection *service_connection,
       boost::asio::ip::tcp::socket *socket);
 
   // Non thread safe.
@@ -49,7 +52,6 @@ class ProtobufConnection : public Connection {
   virtual bool Handle(boost::shared_ptr<Connection> connection,
                       const ProtobufDecoder *decoder) const;
   scoped_ptr<HandlerTable> handler_table_;
-  int timeout_;
   friend class RawProtobufConnection;
 };
 #endif  // NET2_PROTOBUF_CONNECTION_HPP_

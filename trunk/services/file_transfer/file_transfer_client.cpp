@@ -43,7 +43,7 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask>, public
   }
   ~TransferTask() {
     VLOG(2) << "~TransferTask";
-    timer_->cancel();
+    timer_->Cancel();
   }
   void ConnectionClosed(Connection *connection) {
     if (connection != connection_.get()) {
@@ -51,7 +51,7 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask>, public
       return;
     }
     VLOG(2) << "ChannelClosed channel: " << connection_->name() << " tasker:" << id_ << " slice: " << (status_.get() ? status_->index() : -1);
-    timer_->cancel();
+    timer_->Cancel();
     if (file_transfer_.expired()) {
       LOG(WARNING) << "FileTransfer had expired";
       return;
@@ -385,8 +385,7 @@ void TransferTask::Timeout(boost::intrusive_ptr<Timer> timer,
 void TransferTask::SyncSlice() {
   VLOG(1) << "SyncSlice: Channel: " << connection_->name() << " tasker: " << id() << " slice: " << status_->index()
       << "timeout: " << timeout_;
-  timer_->expires_from_now(boost::posix_time::milliseconds(timeout_));
-  timer_->async_wait(boost::bind(&TransferTask::Timeout, this, timer_, _1));
+  timer_->Wait(boost::bind(&TransferTask::Timeout, this, timer_, _1));
   controller_.Reset();
   slice_response_.Clear();
   stub_.ReceiveSlice(&controller_,
@@ -399,7 +398,7 @@ void TransferTask::SyncSlice() {
 
 void TransferTask::SyncSliceDone() {
   VLOG(1) << "SyncSliceDone: Channel: " << connection_->name() << " tasker: " << id() << " slice: " << status_->index();
-  timer_->cancel();
+  timer_->Cancel();
   bool ret = false;
   if (controller_.Failed() || !slice_response_.succeed()) {
     VLOG(2) << "transfer id: " << id_ << " slice: "
@@ -436,8 +435,8 @@ void FileTransferClient::SyncSliceDone(
 TransferTask::TransferTask(
     boost::weak_ptr<FileTransferClient> file_transfer,
     boost::shared_ptr<Connection> connection, int id, int timeout, boost::asio::io_service &io_service)
-    : connection_(connection), stub_(connection_.get()), id_(id), file_transfer_(file_transfer), timeout_(timeout), timer_(
-        new Timer(io_service)) {
+    : connection_(connection), stub_(connection_.get()), id_(id), file_transfer_(file_transfer),
+      timeout_(timeout), timer_(new Timer(io_service, timeout)) {
 }
 
 boost::shared_ptr<TransferTask> TransferTask::Create(

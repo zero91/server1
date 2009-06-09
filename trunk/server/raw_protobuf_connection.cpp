@@ -131,10 +131,10 @@ bool RawProtobufConnection::Handle(
 }
 
 RawProtobufConnection::RawProtobufConnection(
-    const string &name, int timeout,
+    const string &name,
     boost::shared_ptr<Connection> connection,
     ProtobufConnection *service_connection)
-  : RawConnectionImpl<ProtobufDecoder>(name, connection, timeout),
+  : RawConnectionImpl<ProtobufDecoder>(name, connection),
     service_connection_(service_connection) {
 }
 
@@ -171,11 +171,13 @@ static void CallMethodCallback(
   if (rpc_controller) rpc_controller->Notify();
 }
 
-void RawProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor *method,
-                  google::protobuf::RpcController *controller,
-                  const google::protobuf::Message *request,
-                  google::protobuf::Message *response,
-                  google::protobuf::Closure *done) {
+void RawProtobufConnection::CallMethod(
+    RawConnection::StatusPtr status,
+    const google::protobuf::MethodDescriptor *method,
+    google::protobuf::RpcController *controller,
+    const google::protobuf::Message *request,
+    google::protobuf::Message *response,
+    google::protobuf::Closure *done) {
   VLOG(2) << name() << " : " << "CallMethod";
   uint64 request_identify = hash8(method->full_name());
   uint64 response_identify = hash8(response->GetDescriptor()->full_name());
@@ -211,14 +213,14 @@ void RawProtobufConnection::CallMethod(const google::protobuf::MethodDescriptor 
             << response_identify << " to response handler table, size: "
             << response_handler_table_.size();
   }
-  error = !connection_->PushData(EncodeMessage(&meta));
+  error = !PushData(EncodeMessage(&meta));
   if (error) {
     LOG(WARNING) << name() << " : " << "PushData error, connection may closed";
     reason = "PushDataError";
     goto failed;
   }
   RawConnTrace << " PushData, " << " incoming: " << incoming()->size();
-  error = !connection_->ScheduleWrite();
+  error = !ScheduleWrite(status);
   if (error) {
     LOG(WARNING) << name() << " : "
         << "ScheduleWrite error, connection may closed";
