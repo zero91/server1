@@ -1,46 +1,54 @@
 #ifndef TIMER_MASTER_HPP_
 #define TIMER_MASTER_HPP_
-class Timer : public boost::enable_shared_from_this<Timer> {
+#include "base/base.hpp"
+#include "boost/intrusive/list.hpp"
+#include "boost/thread.hpp"
+class Timer {
  public:
-  void Wait(int timeout, boost::function0<void> f);
-  bool Cancel();
- private:
-  Timer(TimerMaster *master);
-  boost::intrusive_link<Timer> TimerLink;
+  virtual bool period() const = 0;
+  virtual bool timeout() const = 0;
+  virtual void Expired() = 0;
 };
 
 class TimerMaster {
  public:
-  TimerMaster() : expires_(0) {
+  TimerMaster() : timer_jiffies_(0), stop_(true) {
   }
   // Update the time slot, bind to a thread.
-  void Run();
+  void Start();
   void Stop();
   // Call the f after timeout, thread safe.
-  void Register(int timeout, boost::weak_ptr<Timer> timer);
- private:
-  static const int kTVNBits = 6;
-  static const int kTVRBits = 8;
-  static const int kTVNSize = (1 << kTVNBits);
-  static const int kTVRSize = (1 << kTVRBits);
-  static const int kTVNMask = (kTVNSize - 1);
-  static const int kTVRMask = (kTVRSize - 1);
-  struct TimeT;
-  typedef boost::intrusive_link<TimeT> TimeTLink;
-  struct TimeT {
-    boost::weak_ptr<Timer> timer;
-    int expires;
-    TimeTLink tlink;
+  void Register(boost::weak_ptr<Timer> weak_timer);
+  void Update(int jiffies);
+  ~TimerMaster() {
+    DestroyAllTimers();
+  }
+ protected:
+  static const int kTVBits = 8;
+  static const int kTVSize = (1 << kTVBits);
+  static const int kTVMask = (kTVSize - 1);
+  typedef boost::intrusive::list_base_hook<
+    boost::intrusive::link_mode<
+    boost::intrusive::auto_unlink> > TimerSlotBaseHook;
+  struct TimerSlot : public TimerSlotBaseHook {
+    boost::weak_ptr<Timer> weak_timer;
   };
-  typedef boost::intrusive_list<TimeT, &TimeT::tlink> TList;
+  typedef boost::intrusive::list<TimerSlot,
+          boost::intrusive::constant_time_size<false> > TList;
   struct TimerVec {
-    int index;
-    TList vec[kTVNSize];
+    uint8 index;
+    TList vec[kTVSize];
+    TimerVec() : index(0) {
+    }
   };
-  struct TimerVecRoot {
-    int index;
-    TList vec[kTVRSize];
-  };
-  int expires_;
+  void DestroyAllTimers();
+  void InternalRun();
+  void InternalAddTimer(boost::weak_ptr<Timer> timer);
+  void CascadeTimers(TimerVec *v);
+  int timer_jiffies_;
+  TimerVec vecs_[4];
+  boost::mutex mutex_;
+  scoped_ptr<boost::thread> thread_;
+  bool stop_;
 };
 #endif  // TIMER_MASTER_HPP_

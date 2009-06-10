@@ -22,6 +22,8 @@ server_env.StaticLibrary(
    'raw_connection.cpp',
    'raw_protobuf_connection.hpp',
    'raw_protobuf_connection.cpp',
+   'timer_master.hpp',
+   'timer_master.cpp',
    '$objroot/server/libmeta_pb.a'],
    )
 server_env.Program(
@@ -36,6 +38,7 @@ Test(server_env, 'io_service_pool')
 Test(server_env, 'shared_const_buffers')
 Test(server_env, 'rpc')
 Test(server_env, 'listen')
+Test(server_env, 'timer_master')
 server_env.Program(
   target = 'rpc_main',
   source = ['rpc_main.cpp'])

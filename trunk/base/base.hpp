@@ -51,4 +51,9 @@ using namespace __gnu_cxx;
 #include "hash.hpp"
 #include "closure.hpp"
 #include "atomic.hpp"
+
+template <class T,int N>
+inline const int arraysize(T (&x)[N]) {
+  return N;
+}
 #endif // BASE_H_
