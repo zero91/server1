@@ -6,13 +6,13 @@
 class Timer {
  public:
   virtual bool period() const = 0;
-  virtual bool timeout() const = 0;
+  virtual int timeout() const = 0;
   virtual void Expired() = 0;
 };
 
 class TimerMaster {
  public:
-  TimerMaster() : timer_jiffies_(0), stop_(true) {
+  TimerMaster() : timer_jiffies_(1), stop_(true) {
   }
   // Update the time slot, bind to a thread.
   void Start();
@@ -32,19 +32,16 @@ class TimerMaster {
     boost::intrusive::auto_unlink> > TimerSlotBaseHook;
   struct TimerSlot : public TimerSlotBaseHook {
     boost::weak_ptr<Timer> weak_timer;
+    int jiffies;
   };
   typedef boost::intrusive::list<TimerSlot,
           boost::intrusive::constant_time_size<false> > TList;
-  struct TimerVec {
-    uint8 index;
-    TList vec[kTVSize];
-    TimerVec() : index(0) {
-    }
-  };
+  typedef TList TimerVec[kTVSize];
   void DestroyAllTimers();
   void InternalRun();
-  void InternalAddTimer(boost::weak_ptr<Timer> timer);
-  void CascadeTimers(TimerVec *v);
+  void InternalAddTimer(TimerSlot *slot,
+                        boost::weak_ptr<Timer> timer, int jiffies);
+  int CascadeTimers(TimerVec *v, int index);
   int timer_jiffies_;
   TimerVec vecs_[4];
   boost::mutex mutex_;

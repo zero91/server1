@@ -2,9 +2,6 @@
 
 void TimerMaster::Start() {
   CHECK(stop_);
-  for (int i = 0; i < arraysize(vecs_); ++i) {
-    vecs_[i].index = 0;
-  }
   thread_.reset(new boost::thread(&TimerMaster::InternalRun, this));
 }
 
@@ -18,7 +15,7 @@ void TimerMaster::Stop() {
 void TimerMaster::DestroyAllTimers() {
   for (int i = 0; i < arraysize(vecs_); ++i) {
     for (int j = 0; j < kTVSize; ++j) {
-      TList *l = &vecs_[i].vec[j];
+      TList *l = &vecs_[i][j];
       for (TList::iterator it = l->begin(); it != l->end();) {
         TimerSlot *s = &*it;
         ++it;
@@ -36,78 +33,82 @@ void TimerMaster::InternalRun() {
   }
 }
 
-void TimerMaster::CascadeTimers(TimerVec *v) {
-  TList *l = &v->vec[v->index];
+int TimerMaster::CascadeTimers(TimerVec *v, int index) {
+  TList *l = &(*v)[index];
   for (TList::iterator it = l->begin();
        it != l->end();) {
     TimerSlot *s = &*it;
     ++it;
     s->unlink();
-    InternalAddTimer(s->weak_timer);
+    InternalAddTimer(s, s->weak_timer, s->jiffies);
   }
   CHECK(l->empty());
-  ++v->index;
+  return index;
 }
 
+#define INDEX(N) (timer_jiffies_ >> (N * kTVBits)) & kTVMask
 void TimerMaster::Update(int jiffies) {
   CHECK_GE(jiffies, timer_jiffies_);
-  TimerVec *v0 = &vecs_[0];
+  TimerVec &v0 = vecs_[0];
   while (jiffies - timer_jiffies_ >= 0) {
     boost::mutex::scoped_lock lock(mutex_);
-    if (v0->index == 0) {
-      int n = 1;
-      do {
-        CascadeTimers(&vecs_[n]);
-      } while (vecs_[n].index == 1 &&  ++n < arraysize(vecs_));
+    const int index = timer_jiffies_ & kTVMask;
+    if (!index && !CascadeTimers(&vecs_[1], INDEX(1)) &&
+        !CascadeTimers(&vecs_[2], INDEX(2))) {
+      CascadeTimers(&vecs_[3], INDEX(3));
     }
-    TList *l = &v0->vec[v0->index];
+    TList *l = &v0[index];
     for (TList::iterator it = l->begin();
          it != l->end();) {
-      scoped_ptr<TimerSlot> s(&*it);
+      TimerSlot *s = &*it;
       ++it;
       s->unlink();
       boost::weak_ptr<Timer> weak_timer = s->weak_timer;
       boost::shared_ptr<Timer> timer = weak_timer.lock();
       if (weak_timer.expired()) {
+        delete s;
         continue;
       }
       timer->Expired();
       if (timer->period()) {
-        InternalAddTimer(weak_timer);
+        InternalAddTimer(s, timer, timer->timeout() + timer_jiffies_);
+      } else {
+        delete s;
       }
     }
-    CHECK(l->empty());
-    ++v0->index;
     ++timer_jiffies_;
   }
 }
 
 void TimerMaster::InternalAddTimer(
-    boost::weak_ptr<Timer> weak_timer) {
-  boost::shared_ptr<Timer> timer = weak_timer.lock();
-  if (weak_timer.expired()) {
-    return;
-  }
+    TimerSlot *slot,
+    boost::weak_ptr<Timer> weak_timer,
+    int jiffies) {
   int i = 0;
-  int idx  = timer->timeout();
-  int expires = idx + timer_jiffies_;
+  int idx  = jiffies - timer_jiffies_;
   TList *v;
+  int expires = jiffies;
   uint64 upper = 1;
   for (int i = 0; i < arraysize(vecs_); ++i) {
     upper <<= kTVBits;
     if (idx < upper) {
       int j = expires & kTVMask;
-      v = &vecs_[i].vec[0] + j;
+      v = &vecs_[i][j];
       break;
     }
     expires >>= kTVBits;
   }
-  TimerSlot *slot = new TimerSlot;
-  slot->weak_timer = timer;
+  slot->weak_timer = weak_timer;
+  slot->jiffies = jiffies;
   v->push_back(*slot);
 }
 
 void TimerMaster::Register(boost::weak_ptr<Timer> weak_timer) {
   boost::mutex::scoped_lock locker(mutex_);
-  InternalAddTimer(weak_timer);
+  boost::shared_ptr<Timer> timer = weak_timer.lock();
+  if (weak_timer.expired()) {
+    return;
+  }
+  TimerSlot *slot = new TimerSlot;
+  InternalAddTimer(slot, weak_timer, timer->timeout() + timer_jiffies_);
 }
