@@ -160,7 +160,7 @@ static void CallMethodCallback(
           << response->GetDescriptor()->full_name()
           << " identify: " << meta.identify();
   if (!response->ParseFromArray(meta.content().c_str(),
-                                meta.content().size())) {
+                                            meta.content().size())) {
     LOG(WARNING) << connection->name() << " : " << "Fail to parse the response :";
     if (rpc_controller) {
       rpc_controller->SetFailed("Fail to parse the response:");

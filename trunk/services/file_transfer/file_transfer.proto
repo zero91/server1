@@ -33,6 +33,7 @@ message DownloadCompleteResponse {
 
 message RegisterResponse {
   required bool succeed = 1;
+  optional string checkbook_filename = 2;
 };
 
 service FileDownloadService {

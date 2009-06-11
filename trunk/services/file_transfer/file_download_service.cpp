@@ -187,6 +187,7 @@ void FileDownloadServiceImpl::RegisterDownload(
   VLOG(2) << "tasker channel size: " << tasker->channel_size();
   tasker->client()->PushChannel(channel);
   response->set_succeed(true);
+  response->set_checkbook_filename(tasker->client()->GetCheckBookDestFileName());
 }
 
 void FileDownloadNotifyImpl::DownloadComplete(google::protobuf::RpcController *controller,

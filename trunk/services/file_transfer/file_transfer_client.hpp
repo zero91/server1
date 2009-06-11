@@ -53,6 +53,7 @@ class FileTransferClient : public boost::enable_shared_from_this<FileTransferCli
       int threadpool_size);
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
+  const string GetCheckBookDestFileName() const;
  private:
   static const int kDefaultTimeOutSec = 10;
   enum Status {

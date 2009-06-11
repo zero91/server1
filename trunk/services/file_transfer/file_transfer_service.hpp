@@ -25,7 +25,6 @@ class FileTransferServiceImpl :
                     const FileTransfer::SliceRequest *request,
                     FileTransfer::SliceResponse *response,
                     google::protobuf::Closure *done);
-
  private:
   boost::shared_ptr<TransferInfo> GetTransferInfoFromConnection(
     const Connection *connection,

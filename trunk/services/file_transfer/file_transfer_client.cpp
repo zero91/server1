@@ -202,6 +202,10 @@ FileTransferClient *FileTransferClient::Create(
   return file_transfer;
 }
 
+const string FileTransferClient::GetCheckBookDestFileName() const {
+  return checkbook_->GetCheckBookDestFileName();
+}
+
 int FileTransferClient::Percent() {
   if (finished()) {
     return 1000;
