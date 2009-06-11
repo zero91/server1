@@ -22,7 +22,9 @@ public:
       size_t num_io_services,
       size_t num_threads);
   ~IOServicePool() {
-    CHECK(!IsRunning());
+    if (IsRunning()) {
+      Stop();
+    }
   }
 
   /// Run all io_service objects in the pool.
@@ -37,8 +39,6 @@ public:
 
   /// Get an io_service to use.
   boost::asio::io_service &get_io_service();
-  boost::shared_ptr<Timer> GetTimer(int timeout);
-
 private:
 
   /// The pool of io_services.

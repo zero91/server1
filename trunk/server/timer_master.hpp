@@ -3,13 +3,7 @@
 #include "base/base.hpp"
 #include "boost/intrusive/list.hpp"
 #include "boost/thread.hpp"
-class Timer {
- public:
-  virtual bool period() const = 0;
-  virtual int timeout() const = 0;
-  virtual void Expired() = 0;
-};
-
+#include "server/timer.hpp"
 class TimerMaster {
  public:
   TimerMaster() : timer_jiffies_(1), stop_(true) {
@@ -17,11 +11,16 @@ class TimerMaster {
   // Update the time slot, bind to a thread.
   void Start();
   void Stop();
+  bool IsRunning() const {
+    return !stop_;
+  }
   // Call the f after timeout, thread safe.
   void Register(boost::weak_ptr<Timer> weak_timer);
   void Update(int jiffies);
   ~TimerMaster() {
-    DestroyAllTimers();
+    if (!stop_) {
+      Stop();
+    }
   }
  protected:
   static const int kTVBits = 8;
@@ -46,6 +45,6 @@ class TimerMaster {
   TimerVec vecs_[4];
   boost::mutex mutex_;
   scoped_ptr<boost::thread> thread_;
-  bool stop_;
+  volatile bool stop_;
 };
 #endif  // TIMER_MASTER_HPP_

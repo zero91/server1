@@ -15,9 +15,9 @@ IOServicePool::IOServicePool(
     size_t num_io_services,
     size_t num_threads)
   : name_(name),
-    num_io_services_(num_io_services + 1),
-    num_threads_(num_threads + 1),
-    next_io_service_(1),
+    num_io_services_(num_io_services),
+    num_threads_(num_threads),
+    next_io_service_(0),
     threadpool_(name + ".ThreadPool", num_threads_) {
   CHECK_GE(num_threads, num_io_services);
 }
@@ -67,17 +67,12 @@ void IOServicePool::Stop() {
   io_services_.clear();
 }
 
-boost::shared_ptr<Timer> IOServicePool::GetTimer(int timeout) {
-  boost::shared_ptr<Timer> t(new Timer(*io_services_[0], timeout));
-  return t;
-}
-
 boost::asio::io_service &IOServicePool::get_io_service() {
   boost::mutex::scoped_lock locker(mutex_);
   // Use a round-robin scheme to choose the next io_service to use.
   boost::asio::io_service &io_service = *io_services_[next_io_service_];
   ++next_io_service_;
   if (next_io_service_ == io_services_.size())
-    next_io_service_ = 1;
+    next_io_service_ = 0;
   return io_service;
 }

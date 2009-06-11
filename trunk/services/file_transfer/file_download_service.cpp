@@ -103,10 +103,24 @@ void FileDownloadServiceImpl::ConnectionClosed(
 }
 
 FileDownloadServiceImpl::~FileDownloadServiceImpl() {
-  if (threadpool_.IsRunning()) {
-    VLOG(1) << "Stop thread pool in FileDownloadServiceImpl";
-    threadpool_.Stop();
+  CHECK(!threadpool_->IsRunning());
+  CHECK(!timer_master_->IsRunning());
+}
+
+void FileDownloadServiceImpl::Stop() {
+  boost::mutex::scoped_lock locker(table_mutex_);
+  for (DownloadTaskerTable::iterator it = tasker_table_.begin();
+       it != tasker_table_.end(); ++it) {
+    it->second->client()->Stop();
   }
+  if (threadpool_->IsRunning()) {
+    threadpool_->Stop();
+  }
+  if (timer_master_->IsRunning()) {
+    timer_master_->Stop();
+  }
+  channel_table_.clear();
+  tasker_table_.clear();
 }
 
 void FileDownloadServiceImpl::RegisterDownload(
@@ -136,10 +150,14 @@ void FileDownloadServiceImpl::RegisterDownload(
       FileTransferClient *client =
           FileTransferClient::Create(host,"", src_filename, dest_filename, 0);
       tasker = DownloadTasker::Create(client);
-      if (!threadpool_.IsRunning()) {
-        threadpool_.Start();
+      if (!threadpool_->IsRunning()) {
+        threadpool_->Start();
       }
-      tasker->client()->set_threadpool(&threadpool_);
+      if (!timer_master_->IsRunning()) {
+        timer_master_->Start();
+      }
+      tasker->client()->set_threadpool(threadpool_);
+      tasker->client()->set_timer_master(timer_master_);
       init = true;
       tasker_table_.insert(make_pair(unique_identify, tasker));
     } else {

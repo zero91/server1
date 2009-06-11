@@ -280,7 +280,7 @@ TEST_F(FileTransferTest, Test5) {
 }
 
 TEST_F(FileTransferTest, Test6) {
-  const int kConnectionNumber = 2;
+  const int kConnectionNumber = FLAGS_num_connections;
   const int kSliceNumber = 10;
   const int kFileSize = CheckBook::GetSliceSize()  * kSliceNumber + 1;
   string content;
@@ -290,7 +290,6 @@ TEST_F(FileTransferTest, Test6) {
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
   boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest6"));
-  file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
@@ -303,7 +302,6 @@ TEST_F(FileTransferTest, Test6) {
   }
   connections[0]->Disconnect();
   connections.erase(connections.begin());
-  ASSERT_EQ(connections.size(), 1);
   for (int i = 0; i < connections.size(); ++i) {
     ASSERT_TRUE(connections[i]->IsConnected());
   }
@@ -328,15 +326,20 @@ TEST_F(FileTransferTest, Test6) {
   }
   ns->Wait();
   ASSERT_EQ(file_transfer_client2->Percent(), 1000);
-  boost::filesystem::path dest_path(FLAGS_doc_root);
-  dest_path /= dest_filename;
-  ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
+  VLOG(2) << "connection size: " << connections.size();
   for (int i = 0; i < connections.size(); ++i) {
     connections[i]->Disconnect();
+    VLOG(2) << "Disconnect " << i;
   }
   file_transfer_client2->Stop();
+  VLOG(2) << "file transfer client2 stop";
+  boost::filesystem::path dest_path(FLAGS_doc_root);
+  dest_path /= dest_filename;
+  VLOG(2) << "Compare file: " << kTestFile << " and " << dest_path.file_string();
+  ASSERT_TRUE(FileEqual(kTestFile, dest_path.file_string()));
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
+  VLOG(2) << "Removed files";
 }
 
 TEST_F(FileTransferTest, Test7) {
@@ -350,7 +353,6 @@ TEST_F(FileTransferTest, Test7) {
   file_transfer_client_.reset(FileTransferClient::Create(
       FLAGS_server, FLAGS_port, kTestFile, dest_filename, FLAGS_num_threads));
   boost::shared_ptr<Notifier> ns(new Notifier("NotifyTest7"));
-  file_transfer_client_->set_finish_listener(ns->notify_handler());
   file_transfer_client_->Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {

@@ -79,6 +79,7 @@ void Server::Listen(const string &address,
   // Open the acceptor with the option to reuse the address (i.e. SO_REUSEADDR).
   VLOG(2) << "Server running";
   io_service_pool_.Start();
+  timer_master_.Start();
   const string host(address + "::" + port);
   boost::asio::ip::tcp::acceptor *acceptor = new boost::asio::ip::tcp::acceptor(io_service_pool_.get_io_service());
   boost::asio::ip::tcp::resolver resolver(acceptor->io_service());
@@ -129,6 +130,7 @@ void Server::Stop() {
   LOG(WARNING) << "Stop io service pool";
   io_service_pool_.Stop();
   stop_mutex_.unlock();
+  timer_master_.Stop();
   LOG(WARNING) << "Server stopped";
   CHECK(channel_table_.empty());
 }
@@ -159,9 +161,8 @@ void Server::HandleAccept(const boost::system::error_code& e,
     return;
   }
   // The socket ownership transfer to Connection.
-  boost::shared_ptr<Timer> timer = io_service_pool_.GetTimer(ProtobufConnection::kTimeoutMs);
   boost::shared_ptr<Connection> connection = connection_template->Span(
-      timer, socket);
+      socket);
   if (connection.get() == NULL) {
     LOG(WARNING) << "Span a NULL connection!";
     return;
@@ -175,6 +176,7 @@ void Server::HandleAccept(const boost::system::error_code& e,
       return;
     }
     channel_table_.insert(connection);
+    timer_master_.Register(connection);
     VLOG(2) << "Insert: " << connection.get();
     notifier_->Inc(1);
   }

@@ -8,21 +8,37 @@
 // Author: xiliu.tang@gmail.com (Xiliu Tang)
 
 #include "server/client_connection.hpp"
+#include "server/io_service_pool.hpp"
+#include "server/timer_master.hpp"
+ClientConnection::ClientConnection(
+    const string &name, const string &server, const string &port)
+    : ProtobufConnection(server + "." + port + "." + name),
+      io_service_pool_(new IOServicePool(name + ".IOService", 1, kClientThreadPoolSize)),
+      server_(server), port_(port),
+      timer_master_(new TimerMaster) {
+      VLOG(2) << "Constructor client connection:" << name;
+}
+
+ClientConnection::~ClientConnection() {
+    CHECK(!IsConnected());
+}
+
 bool ClientConnection::Connect() {
   if (IsConnected()) {
     LOG(WARNING) << "Connect but IsConnected";
     return true;
   }
-  if (out_io_service_pool_ == NULL) io_service_pool_.Start();
+  io_service_pool_->Start();
+  timer_master_->Start();
   boost::asio::ip::tcp::resolver::query query(server_, port_);
-  boost::asio::ip::tcp::resolver resolver(GetIOService());
+  boost::asio::ip::tcp::resolver resolver(io_service_pool_->get_io_service());
   boost::asio::ip::tcp::resolver::iterator endpoint_iterator(
       resolver.resolve(query));
   boost::asio::ip::tcp::resolver::iterator end;
   // Try each endpoint until we successfully establish a connection.
   boost::system::error_code error = boost::asio::error::host_not_found;
   boost::asio::ip::tcp::socket *socket =
-    new boost::asio::ip::tcp::socket(GetIOService());
+    new boost::asio::ip::tcp::socket(io_service_pool_->get_io_service());
   while (error && endpoint_iterator != end) {
     socket->close();
     socket->connect(*endpoint_iterator++, error);
@@ -33,7 +49,7 @@ bool ClientConnection::Connect() {
     return false;
   }
   CHECK(impl_ == NULL);
-  boost::shared_ptr<Timer> timer = GetIOServicePool()->GetTimer(kTimeoutMs);
-  Attach(timer, this, socket);
+  Attach(this, socket);
+  timer_master_->Register(shared_from_this());
   return true;
 }

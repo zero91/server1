@@ -2,6 +2,8 @@
 #include "services/file_transfer/file_transfer_service.hpp"
 #include <boost/filesystem/operations.hpp>
 #include <boost/thread/shared_mutex.hpp>
+#include "server/timer.hpp"
+#include "server/timer_master.hpp"
 class SliceStatus {
  public:
   enum Status {IDLE = 0, TRANSFERING, DONE};
@@ -21,11 +23,11 @@ class SliceStatus {
   mutable Status status_;
 };
 
-class TransferTask : public boost::enable_shared_from_this<TransferTask>, public Connection::AsyncCloseListener {
+class TransferTask : virtual public Connection::AsyncCloseListener, virtual public Timer, public boost::enable_shared_from_this<TransferTask> {
  public:
   static boost::shared_ptr<TransferTask> Create(
       boost::weak_ptr<FileTransferClient> file_transfer,
-      Connection *channel, int id, int timeout, boost::asio::io_service &io_service);
+      Connection *channel, int id, int timeout);
 
   int id() const {
     return id_;
@@ -42,29 +44,36 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask>, public
     return connection_->IsConnected();
   }
   ~TransferTask() {
-    VLOG(2) << "~TransferTask";
-    timer_->Cancel();
+    VLOG(2) << "~TransferTask" << id_;
   }
   void ConnectionClosed(Connection *connection) {
     if (connection != connection_.get()) {
       LOG(WARNING) << "Expired connection " << connection->name();
       return;
     }
+    boost::shared_ptr<FileTransferClient> client = file_transfer_.lock();
     VLOG(2) << "ChannelClosed channel: " << connection_->name() << " tasker:" << id_ << " slice: " << (status_.get() ? status_->index() : -1);
-    timer_->Cancel();
     if (file_transfer_.expired()) {
       LOG(WARNING) << "FileTransfer had expired";
       return;
     }
-    file_transfer_.lock()->ChannelClosed(shared_from_this(), status_);
+    if (!client->IsRunning()) {
+      LOG(WARNING) << "FileTransfer had stopped";
+      return;
+    }
+    client->ChannelClosed(shared_from_this(), status_);
   }
  private:
   TransferTask(
       boost::weak_ptr<FileTransferClient> file_transfer,
-      boost::shared_ptr<Connection> connection, int id, int timeout,
-      boost::asio::io_service &io_service);
-  void Timeout(boost::intrusive_ptr<Timer> timer,
-               const boost::system::error_code &e);
+      boost::shared_ptr<Connection> connection, int id, int timeout);
+  virtual int timeout() const {
+    return timeout_;
+  }
+  virtual bool period() const {
+    return period_;
+  }
+  virtual void Expired();
   void SyncSliceDone();
   static const int kRetry = 2;
   boost::shared_ptr<Connection> connection_;
@@ -75,9 +84,9 @@ class TransferTask : public boost::enable_shared_from_this<TransferTask>, public
   RpcController controller_;
   boost::weak_ptr<FileTransferClient> file_transfer_;
   boost::shared_ptr<SliceStatus> status_;
-  boost::intrusive_ptr<Timer> timer_;
   int id_;
   int timeout_;
+  bool period_;
 };
 
 void FileTransferClient::ChannelClosed(
@@ -95,10 +104,11 @@ void FileTransferClient::ChannelClosed(
       status->set_status(SliceStatus::IDLE);
     }
   }
-  GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+  ScheduleTask();
 }
 
 void FileTransferClient::PushChannel(Connection *channel) {
+  boost::mutex::scoped_lock running_locker(running_mutex_);
   static int id = 0;
   if (!channel->IsConnected()) {
     LOG(WARNING) << "Channel is not connected";
@@ -107,48 +117,73 @@ void FileTransferClient::PushChannel(Connection *channel) {
   boost::shared_ptr<TransferTask> tasker(TransferTask::Create(
           shared_from_this(),
           channel,
-          id++, timeout_, *io_service_));
+          id++, timeout_));
   {
     boost::mutex::scoped_lock locker(transfer_task_set_mutex_);
     transfer_task_set_.insert(tasker);
   }
   transfer_task_queue_.Push(tasker);
-  GetThreadPool()->PushTask(boost::bind(
-      &FileTransferClient::Schedule, this));
+  if (IsRunning()) {
+    ScheduleTask();
+  }
 }
 
+FileTransferClient::FileTransferClient(const string &host, const string &port,
+                                       const string &src_filename, const string &dest_filename,
+                                       int thread_pool_size) :
+  host_(host), port_(port), src_filename_(src_filename),
+  dest_filename_(dest_filename),
+  threadpool_(new ThreadPool(
+      "FileTransferClientThreadPool", thread_pool_size)),
+  sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK),
+  timeout_(kDefaultTimeOutSec),
+  timer_master_(new TimerMaster), running_(false) {
+}
+
+
 void FileTransferClient::Start() {
-  if (out_threadpool_ == NULL && pool_.IsRunning()) {
-    LOG(WARNING) << "FileTransferClient is running";
-    return;
+  {
+    boost::mutex::scoped_lock running_locker(running_mutex_);
+    if (running_) {
+      LOG(WARNING) << "FileTransferClient is already running";
+      return;
+    }
+    notifier_.reset(new Notifier("FileTransferClientJob"));
+    threadpool_->Start();
+    timer_master_->Start();
+    io_service_.reset(new boost::asio::io_service);
+    work_.reset(new boost::asio::io_service::work(*io_service_));
+    threadpool_->PushTask(boost::bind(
+        &boost::asio::io_service::run, io_service_.get()));
+    running_ = true;
   }
-  if (out_threadpool_ == NULL) {
-    pool_.Start();
+  boost::mutex::scoped_lock locker(transfer_task_set_mutex_);
+  for (int i = 0; i < transfer_task_set_.size(); ++i) {
+    ScheduleTask();
   }
-  io_service_.reset(new boost::asio::io_service);
-  work_.reset(new boost::asio::io_service::work(*io_service_));
-  GetThreadPool()->PushTask(boost::bind(
-      &boost::asio::io_service::run, io_service_.get()));
 }
 
 void FileTransferClient::Stop() {
-  if (!GetThreadPool()->IsRunning()) {
-    LOG(WARNING) << "FileTransferClient already stopped.";
+  boost::mutex::scoped_lock locker(running_mutex_);
+  if (!running_) {
+    LOG(WARNING) << "FileTransferClient is already stop";
     return;
   }
+  running_ = false;
   boost::shared_ptr<TransferTask> tasker;
-  for (int i = 0; i < transfer_task_set_.size(); ++i) {
+  int count = notifier_->count();
+  for (int i = 0; i < count; ++i) {
     transfer_task_queue_.Push(tasker);
   }
   work_.reset();
-  if (out_threadpool_ == NULL) {
-    pool_.Stop();
-  }
+  notifier_->Dec(1);
+  notifier_->Wait();
   if (!finished()) {
     VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName();
     checkbook_->Save(checkbook_->GetCheckBookSrcFileName());
     VLOG(1) << "SaveCheckBook to: " << checkbook_->GetCheckBookSrcFileName() << " Succeed";
   }
+  VLOG(2) << "FileTransferClient stopped, Percent: " << Percent();
 }
 
 FileTransferClient *FileTransferClient::Create(
@@ -168,14 +203,23 @@ FileTransferClient *FileTransferClient::Create(
 }
 
 int FileTransferClient::Percent() {
+  if (finished()) {
+    return 1000;
+  }
   int cnt = 0;
   for (int i = 0; i < checkbook_->slice_size(); ++i) {
     if (checkbook_->slice(i).finished()) {
       ++cnt;
     }
   }
-  VLOG(2) << "Cnt: " << cnt;
+  VLOG(2) << "Cnt: " << cnt << " status: " << status_;
   return cnt * 1000 / checkbook_->slice_size();
+}
+
+void FileTransferClient::ScheduleTask() {
+  CHECK(IsRunning());
+  notifier_->Inc(1);
+  threadpool_->PushTask(boost::bind(&FileTransferClient::Schedule, this));
 }
 
 void FileTransferClient::Schedule() {
@@ -183,35 +227,37 @@ void FileTransferClient::Schedule() {
   switch (status_) {
     case SYNC_CHECKBOOK:
       SyncCheckBook();
-      return;
+      break;
     case PREPARE_SLICE:
       PrepareSlice();
-      return;
+      break;
     case SYNC_SLICE:
       ScheduleSlice();
-      return;
+      break;
     case FINISHED:
       VLOG(1) << "Finished";
-      return;
+      break;
   }
+  notifier_->Dec(1);
+  return;
 }
 
 void FileTransferClient::SyncCheckBook() {
   boost::mutex::scoped_lock locker(sync_checkbook_mutex_);
   if (status_ != SYNC_CHECKBOOK) {
     LOG(WARNING) << "SyncCheckBook but status is: " << status_;
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
     return;
   }
   if (sync_checkbook_failed_ >= kSyncCheckBookRetry) {
     LOG(WARNING) << "SyncCheckbook failed: " << sync_checkbook_failed_;
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
     return;
   }
   if (checkbook_->meta().synced_with_dest()) {
     LOG(WARNING) << "Already synced with dest";
     status_ = PREPARE_SLICE;
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
     return;
   }
   boost::shared_ptr<TransferTask> tasker = transfer_task_queue_.Pop();
@@ -225,7 +271,7 @@ void FileTransferClient::SyncCheckBook() {
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
     }
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
   } else {
     status_ = PREPARE_SLICE;
     checkbook_->mutable_meta()->set_synced_with_dest(true);
@@ -233,7 +279,7 @@ void FileTransferClient::SyncCheckBook() {
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
     }
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
   }
 }
 
@@ -259,7 +305,7 @@ void FileTransferClient::PrepareSlice() {
   boost::mutex::scoped_lock locker(prepare_slice_mutex_);
   if (status_ != PREPARE_SLICE) {
     LOG(WARNING) << "PrepareSlice but status is: " << status_;
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
     return;
   }
   VLOG(1) << "PrepareSlice";
@@ -269,7 +315,7 @@ void FileTransferClient::PrepareSlice() {
   if (!src_file_.is_open()) {
     LOG(WARNING) << "Fail to open source file: "
       << meta.src_filename();
-    GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+    ScheduleTask();
     return;
   }
 
@@ -285,7 +331,7 @@ void FileTransferClient::PrepareSlice() {
     }
   }
   status_ = SYNC_SLICE;
-  GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+  ScheduleTask();
 }
 
 void FileTransferClient::ScheduleSlice() {
@@ -303,7 +349,7 @@ void FileTransferClient::ScheduleSlice() {
     VLOG(2) << "slice list size: " << transfering_slice_.size();
     if (status_ != SYNC_SLICE) {
       LOG(WARNING) << "ScheduleSlice but status is: " << status_;
-      GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+      ScheduleTask();
       return;
     }
     for (SliceStatusLink::iterator it = transfering_slice_.begin();
@@ -371,21 +417,32 @@ void FileTransferClient::SyncSlice(
   tasker->SyncSlice();
 }
 
-void TransferTask::Timeout(boost::intrusive_ptr<Timer> timer,
-                           const boost::system::error_code &e) {
-  if (e != boost::asio::error::operation_aborted) {
-    VLOG(2) << connection_->name() << " : " << "TransferTask Timeouted, e: " << e.message();
-    connection_->Disconnect();
-    VLOG(2) << "slice " << status_->index() << " timeouted, status: "
-            << status_->status();
-    file_transfer_.lock()->ChannelClosed(shared_from_this(), status_);
+void TransferTask::Expired() {
+  VLOG(2) << connection_->name() << " : " << "TransferTask Timeouted";
+  if (status_.get() == NULL) {
+    VLOG(2) << "Transfer : " << id() << " timeout but have null status";
+    return;
   }
+  connection_->Disconnect();
+  VLOG(2) << "slice " << status_->index() << " timeouted, status: "
+    << status_->status();
+  boost::shared_ptr<FileTransferClient> client = file_transfer_.lock();
+  if (file_transfer_.expired()) {
+    LOG(WARNING) << "TransferTask timeout but file_transfer is expired";
+    period_ = false;
+    return;
+  }
+  if (!client->IsRunning()) {
+    LOG(WARNING) << "TransferTask timeout but file_transfer is stopped";
+    period_ = false;
+    return;
+  }
+  client->ChannelClosed(shared_from_this(), status_);
 }
 
 void TransferTask::SyncSlice() {
   VLOG(1) << "SyncSlice: Channel: " << connection_->name() << " tasker: " << id() << " slice: " << status_->index()
       << "timeout: " << timeout_;
-  timer_->Wait(boost::bind(&TransferTask::Timeout, this, timer_, _1));
   controller_.Reset();
   slice_response_.Clear();
   stub_.ReceiveSlice(&controller_,
@@ -393,12 +450,11 @@ void TransferTask::SyncSlice() {
                      &slice_response_,
                      NewClosure(boost::bind(
                          &TransferTask::SyncSliceDone,
-                         this)));
+                         shared_from_this())));
 }
 
 void TransferTask::SyncSliceDone() {
   VLOG(1) << "SyncSliceDone: Channel: " << connection_->name() << " tasker: " << id() << " slice: " << status_->index();
-  timer_->Cancel();
   bool ret = false;
   if (controller_.Failed() || !slice_response_.succeed()) {
     VLOG(2) << "transfer id: " << id_ << " slice: "
@@ -411,7 +467,19 @@ void TransferTask::SyncSliceDone() {
     ret = true;
   }
   VLOG(2) << "SyncSliceDone: " << id() << " " << status_->index() << " " << ret;
-  file_transfer_.lock()->SyncSliceDone(shared_from_this(), ret, status_);
+  if (status_->status() == SliceStatus::TRANSFERING) {
+    VLOG(2) << "Reschedule slice: " << status_->index();
+    boost::shared_ptr<FileTransferClient> lock_file_transfer = file_transfer_.lock();
+    if (file_transfer_.expired()) {
+      VLOG(2) << "FileTransferClient had expired";
+      return;
+    }
+    if (!lock_file_transfer->IsRunning()) {
+      VLOG(2) << "FileTransferClient had stopped";
+      return;
+    }
+    lock_file_transfer->SyncSliceDone(shared_from_this(), ret, status_);
+  }
 }
 
 void FileTransferClient::SyncSliceDone(
@@ -429,22 +497,29 @@ void FileTransferClient::SyncSliceDone(
     }
   }
   VLOG(2) << "SyncSlice: " << status->index() << " result: " << succeed << " Push Task";
-  GetThreadPool()->PushTask(boost::bind(&FileTransferClient::Schedule, this));
+  ScheduleTask();
 }
 
 TransferTask::TransferTask(
     boost::weak_ptr<FileTransferClient> file_transfer,
-    boost::shared_ptr<Connection> connection, int id, int timeout, boost::asio::io_service &io_service)
+    boost::shared_ptr<Connection> connection, int id, int timeout)
     : connection_(connection), stub_(connection_.get()), id_(id), file_transfer_(file_transfer),
-      timeout_(timeout), timer_(new Timer(io_service, timeout)) {
+      timeout_(timeout), period_(true) {
 }
 
 boost::shared_ptr<TransferTask> TransferTask::Create(
     boost::weak_ptr<FileTransferClient> file_transfer,
-    Connection *connection, int id, int timeout, boost::asio::io_service &io_service) {
+    Connection *connection, int id, int timeout) {
   boost::shared_ptr<TransferTask> tasker(new TransferTask(
       file_transfer,
-      connection->shared_from_this(), id, timeout, io_service));
+      connection->shared_from_this(), id, timeout));
+  boost::shared_ptr<FileTransferClient> lock_file_transfer = file_transfer.lock();
+  if (file_transfer.expired()) {
+    LOG(WARNING) << "FileTransferClient had expired";
+    tasker.reset();
+    return tasker;
+  }
+  lock_file_transfer->timer_master()->Register(tasker);
   if (!connection->RegisterAsyncCloseListener(
       tasker)) {
     LOG(WARNING) << "Fail to register close signal";

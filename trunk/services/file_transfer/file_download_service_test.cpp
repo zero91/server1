@@ -179,10 +179,10 @@ TEST_F(FileTransferTest, Test2) {
     connections.push_back(r);
     FileTransfer::FileDownloadService::Stub stub(r.get());
     request.set_peer_name(r->name());
+    VLOG(2) << "Call RegisterDownload to register: " << i;
     stub.RegisterDownload(
-        &controller,
+        NULL,
         &request, &response, NULL);
-    controller.Wait();
     VLOG(2) << "Register " << i;
   }
   for (int i = 0; i < connections.size(); ++i) {

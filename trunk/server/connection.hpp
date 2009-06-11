@@ -21,6 +21,7 @@
 #include <protobuf/descriptor.h>
 #include <protobuf/service.h>
 #include "thread/notifier.hpp"
+#include "server/timer.hpp"
 
 class RpcController : virtual public google::protobuf::RpcController {
  public:
@@ -62,8 +63,10 @@ class RpcController : virtual public google::protobuf::RpcController {
 };
 
 class Connection : virtual public RpcController,
-  virtual public google::protobuf::RpcChannel,
+  virtual public google::protobuf::RpcChannel, virtual public Timer,
   public boost::enable_shared_from_this<Connection> {
+ private:
+  static const int kTimeoutSec = 30;
  public:
   class AsyncCloseListener {
    public:
@@ -111,6 +114,26 @@ class Connection : virtual public RpcController,
   virtual ~Connection() {
     CHECK(!IsConnected());
   }
+  virtual int timeout() const {
+    return kTimeoutSec;
+  }
+  virtual bool period() const {
+    return IsConnected();
+  }
+  virtual void Expired() {
+    VLOG(2) << name() << " Expired";
+    status_->mutex().lock_shared();
+    if (status_->closing()) {
+      VLOG(2) << "Heartbeat " << name() << " but is closing";
+      status_->mutex().unlock_shared();
+      return;
+    }
+    if (impl_.get() == NULL) {
+      status_->mutex().unlock_shared();
+      return;
+    }
+    impl_->Heartbeat(status_);
+  }
   inline bool ScheduleWrite() {
     RawConnectionStatus::Locker locker(status_->mutex());
     if (status_->closing()) {
@@ -132,7 +155,7 @@ class Connection : virtual public RpcController,
   // Create a connection from a socket.
   // The protocol special class should implment it.
   virtual boost::shared_ptr<Connection> Span(
-      boost::shared_ptr<Timer> timer,boost::asio::ip::tcp::socket *socket) = 0;
+      boost::asio::ip::tcp::socket *socket) = 0;
  protected:
   static int global_connection_id;
   void ImplClosed() {

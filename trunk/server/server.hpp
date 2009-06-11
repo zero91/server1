@@ -19,6 +19,7 @@
 #include "server/io_service_pool.hpp"
 #include "server/connection.hpp"
 #include "thread/notifier.hpp"
+#include "server/timer_master.hpp"
 class Connection;
 
 class AcceptorHandler;
@@ -67,6 +68,7 @@ private:
                     Connection *connection_template);
   // The pool of io_service objects used to perform asynchronous operations.
   IOServicePool io_service_pool_;
+  TimerMaster timer_master_;
   friend class AcceptorHandler;
   boost::shared_ptr<Notifier> notifier_;
   ChannelTable channel_table_;

@@ -148,7 +148,7 @@ static void CallMethodCallback(
   RpcController *rpc_controller = dynamic_cast<RpcController*>(
       controller);
   if (decoder == NULL) {
-    VLOG(2) << connection->name() << " : " << "NULL Decoder, may call from destructor";
+    VLOG(2) << "NULL Decoder, may call from destructor";
     if (rpc_controller) {
       rpc_controller->SetFailed("Abort");
       rpc_controller->Notify();
@@ -186,6 +186,7 @@ void RawProtobufConnection::CallMethod(
       controller);
   bool error = false;
   string reason;
+  EncodeData data;
   {
     boost::mutex::scoped_lock locker(response_handler_table_mutex_);
     HandlerTable::const_iterator it = response_handler_table_.find(response_identify);
@@ -213,10 +214,13 @@ void RawProtobufConnection::CallMethod(
             << response_identify << " to response handler table, size: "
             << response_handler_table_.size();
   }
-  error = !PushData(EncodeMessage(&meta));
+  data = EncodeMessage(&meta);
+  error = !PushData(data);
   if (error) {
     LOG(WARNING) << name() << " : " << "PushData error, connection may closed";
     reason = "PushDataError";
+    delete data.first;
+    delete data.second;
     goto failed;
   }
   RawConnTrace << " PushData, " << " incoming: " << incoming()->size();
@@ -225,6 +229,8 @@ void RawProtobufConnection::CallMethod(
     LOG(WARNING) << name() << " : "
         << "ScheduleWrite error, connection may closed";
     reason = "ScheduleWriteError";
+    delete data.first;
+    delete data.second;
     goto failed;
   }
   return;

@@ -10,13 +10,17 @@
 #include <boost/iostreams/device/mapped_file.hpp>
 class TransferTask;
 class SliceStatus;
+class TimerMaster;
 class FileTransferClient : public boost::enable_shared_from_this<FileTransferClient> {
  public:
   void PushChannel(Connection *channel);
   void Start();
   void Stop();
-  void set_threadpool(ThreadPool *pool) {
-    out_threadpool_ = pool;
+  void set_threadpool(boost::shared_ptr<ThreadPool> pool) {
+    threadpool_ = pool;
+  }
+  void set_timer_master(boost::shared_ptr<TimerMaster> timer_master) {
+    timer_master_ = timer_master;
   }
   void set_finish_listener(const boost::function0<void> h) {
     finish_handler_ = h;
@@ -39,6 +43,9 @@ class FileTransferClient : public boost::enable_shared_from_this<FileTransferCli
   void set_timeout(int timeout) {
     timeout_ = timeout;
   }
+  bool IsRunning() {
+    return running_;
+  }
   static FileTransferClient *Create(
       const string &host, const string &port,
       const string &src_filename,
@@ -47,13 +54,7 @@ class FileTransferClient : public boost::enable_shared_from_this<FileTransferCli
   // The percent * 1000, 1000 means transfer finished.
   int Percent();
  private:
-  static const int kDefaultTimeOutMs = 10000;
-  ThreadPool *GetThreadPool() {
-    if (out_threadpool_ == NULL) {
-      return &pool_;
-    }
-    return out_threadpool_;
-  }
+  static const int kDefaultTimeOutSec = 10;
   enum Status {
     SYNC_CHECKBOOK = 0,
     PREPARE_SLICE,
@@ -62,13 +63,13 @@ class FileTransferClient : public boost::enable_shared_from_this<FileTransferCli
   };
   FileTransferClient(const string &host, const string &port,
                      const string &src_filename, const string &dest_filename,
-                     int thread_pool_size) :
-    host_(host), port_(port), src_filename_(src_filename),
-    dest_filename_(dest_filename), pool_("FileTransferClientThreadPool", thread_pool_size),
-    sync_checkbook_failed_(0), finished_(false), status_(SYNC_CHECKBOOK), out_threadpool_(NULL),
-    timeout_(kDefaultTimeOutMs) {
+                     int thread_pool_size);
+
+  boost::shared_ptr<TimerMaster> timer_master() {
+    return timer_master_;
   }
   void Schedule();
+  void ScheduleTask();
   void SyncCheckBook();
   void PrepareSlice();
   void ScheduleSlice();
@@ -82,8 +83,8 @@ class FileTransferClient : public boost::enable_shared_from_this<FileTransferCli
   static const int kSyncCheckBookRetry = 3;
   typedef deque<boost::shared_ptr<TransferTask> > TransferTaskQueue;
   typedef list<boost::shared_ptr<SliceStatus> > SliceStatusLink;
-  ThreadPool *out_threadpool_;
-  ThreadPool pool_;
+  boost::shared_ptr<ThreadPool> threadpool_;
+  boost::shared_ptr<TimerMaster> timer_master_;
   boost::function0<void> finish_handler_;
   PCQueue<boost::shared_ptr<TransferTask> > transfer_task_queue_;
   PCQueue<boost::shared_ptr<SliceStatus> > slice_status_queue_;
@@ -101,7 +102,10 @@ class FileTransferClient : public boost::enable_shared_from_this<FileTransferCli
   string host_, port_, src_filename_, dest_filename_;
   scoped_ptr<boost::asio::io_service> io_service_;
   scoped_ptr<boost::asio::io_service::work> work_;
+  boost::shared_ptr<Notifier> notifier_;
   int timeout_;
+  bool running_;
+  boost::mutex running_mutex_;
   friend class TransferTask;
 };
 #endif  // FILE_TRANSFER_CLIENT_HPP_

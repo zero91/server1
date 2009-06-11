@@ -85,13 +85,13 @@ int main(int argc, char* argv[]) {
   pool.Start();
   vector<boost::shared_ptr<ClientConnection> > connections;
   vector<boost::shared_ptr<Hello::EchoService2::Stub> > stubs;
-  IOServicePool client_io("PosixClientIO", 2, 4);
-  client_io.Start();
+  boost::shared_ptr<IOServicePool> client_io(new IOServicePool("PosixClientIO", 2, 4));
+  client_io->Start();
   for (int i = 0; i < FLAGS_num_connections; ++i) {
     string name("PosixClient." + boost::lexical_cast<string>(i));
     boost::shared_ptr<ClientConnection> r(new ClientConnection(name, FLAGS_address, FLAGS_port));
     r->RegisterService(echo_service.get());
-    r->set_io_service_pool(&client_io);
+    r->set_io_service_pool(client_io);
     connections.push_back(r);
     while (1) {
       try {
@@ -131,6 +131,6 @@ int main(int argc, char* argv[]) {
   VLOG(0) << "Stop thread pool";
   pool.Stop();
   VLOG(0) << "Stop io service";
-  client_io.Stop();
+  client_io->Stop();
   return 0;
 }

@@ -11,55 +11,26 @@
 #define CLIENT_CONNECTION_HPP
 #include <boost/thread/shared_mutex.hpp>
 #include "server/protobuf_connection.hpp"
-#include "server/io_service_pool.hpp"
+class TimerMaster;
+class IOServicePool;
 class ClientConnection : public ProtobufConnection {
  public:
-  ClientConnection(const string &name, const string &server, const string &port)
-    : ProtobufConnection(server + "." + port + "." + name),
-      io_service_pool_(name + ".IOService", 1, kClientThreadPoolSize),
-      server_(server), port_(port), out_io_service_pool_(NULL) {
-      VLOG(2) << "Constructor client connection:" << name;
-  }
-
+  ClientConnection(const string &name, const string &server, const string &port);
   bool Connect();
 
-  void Disconnect() {
-    Connection::Disconnect();
-    if (out_io_service_pool_ == NULL) {
-      io_service_pool_.Stop();
-    }
-    VLOG(2) << name() << " Disconnected";
+  void set_io_service_pool(
+      boost::shared_ptr<IOServicePool> io_service_pool) {
+    io_service_pool_ = io_service_pool;
   }
-  void set_io_service_pool(IOServicePool *io_service_pool) {
-    out_io_service_pool_ = io_service_pool;
-    if (io_service_pool_.IsRunning()) {
-      io_service_pool_.Stop();
-    }
+  void set_timer_master(
+      boost::shared_ptr<TimerMaster> timer_master) {
+    timer_master_ = timer_master;
   }
-  ~ClientConnection() {
-    CHECK(!IsConnected());
-    if (io_service_pool_.IsRunning()) {
-      io_service_pool_.Stop();
-    }
-    VLOG(2) << "~ClientConnection";
-  }
+  ~ClientConnection();
  private:
-  IOServicePool *GetIOServicePool() {
-    if (out_io_service_pool_) {
-      return out_io_service_pool_;
-    }
-    return &io_service_pool_;
-  }
-  boost::asio::io_service &GetIOService() {
-    if (out_io_service_pool_) {
-      return out_io_service_pool_->get_io_service();
-    }
-    return io_service_pool_.get_io_service();
-  }
-
   static const int kClientThreadPoolSize = 1;
-  IOServicePool io_service_pool_;
-  IOServicePool *out_io_service_pool_;
+  boost::shared_ptr<IOServicePool> io_service_pool_;
+  boost::shared_ptr<TimerMaster> timer_master_;
   string server_, port_;
 };
 #endif  // CLIENT_CONNECTION_HPP

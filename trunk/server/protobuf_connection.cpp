@@ -22,8 +22,15 @@ static void CallServiceMethodDone(
   response_meta.set_identify(request_meta.response_identify());
   CHECK(response->AppendToString(response_meta.mutable_content()))
     << "Fail to serialize response for requst: ";
-  connection->PushData(EncodeMessage(&response_meta));
-  connection->ScheduleWrite();
+  EncodeData data = EncodeMessage(&response_meta);
+  if (!connection->PushData(data)) {
+    delete data.first;
+    delete data.second;
+  }
+  if (!connection->ScheduleWrite()) {
+    delete data.first;
+    delete data.second;
+  }
 }
 
 static void HandleService(
@@ -120,17 +127,15 @@ bool ProtobufConnection::Handle(
 }
 
 boost::shared_ptr<Connection> ProtobufConnection::Span(
-    boost::shared_ptr<Timer> timer,
     boost::asio::ip::tcp::socket *socket) {
   boost::shared_ptr<ProtobufConnection> connection(new ProtobufConnection(name() + ".span"));
-  if (!connection->Attach(timer, this, socket)) {
+  if (!connection->Attach(this, socket)) {
     connection.reset();
   }
   return connection;
 }
 
 bool ProtobufConnection::Attach(
-  boost::shared_ptr<Timer> timer,
   ProtobufConnection *service_connection,
   boost::asio::ip::tcp::socket *socket) {
   static int i = 0;
@@ -145,7 +150,7 @@ bool ProtobufConnection::Attach(
     return false;
   }
 
-  raw_connection->InitSocket(status_, socket, timer);
   impl_.reset(raw_connection);
+  impl_->InitSocket(status_, socket);
   return true;
 }

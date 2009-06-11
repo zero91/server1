@@ -40,35 +40,6 @@ class ExecuteHandler {
   void (RawConnection::*member_)(RawConnection::StatusPtr);
 };
 
-class WaitHandler {
- public:
-  WaitHandler(const RawConnection::StatusPtr &status,
-              boost::shared_ptr<Timer> timer,
-              RawConnection *connection,
-            void (RawConnection::*member)(
-                RawConnection::StatusPtr status,
-                const boost::system::error_code&))
-    : status_(status), connection_(connection), timer_(timer), member_(member) {
-  }
-  void operator()(const boost::system::error_code& e) {
-    if (status_->closing()) {
-      return;
-    }
-    status_->mutex().lock_shared();
-    if (status_->closing()) {
-      status_->mutex().unlock_shared();
-      return;
-    }
-    (connection_->*member_)(status_, e);
-  }
- private:
-  RawConnection::StatusPtr status_;
-  RawConnection *connection_;
-  boost::shared_ptr<Timer> timer_;
-  void (RawConnection::*member_)(RawConnection::StatusPtr status,
-                                 const boost::system::error_code&);
-};
-
 class ReadHandler {
  public:
   ReadHandler(const RawConnection::StatusPtr &status,
@@ -103,8 +74,7 @@ RawConnection::RawConnection(const string &name,
 
 void RawConnection::InitSocket(
     StatusPtr status,
-    boost::asio::ip::tcp::socket *socket,
-    boost::shared_ptr<Timer> timer) {
+    boost::asio::ip::tcp::socket *socket) {
   RawConnectionStatus::Locker locker(status->mutex());
   CHECK(!status->closing());
   RawConnTrace;
@@ -116,8 +86,8 @@ void RawConnection::InitSocket(
   // Put the socket into non-blocking mode.
   boost::asio::ip::tcp::socket::non_blocking_io non_blocking_io(true);
   socket_->io_control(non_blocking_io);
-  send_timer_ = timer;
-  StartOOBSend(status);
+  send_package_ = 0;
+  recv_package_ = 0;
   StartOOBRecv(status);
   status->set_reading();
   ReadHandler h(status, this, &RawConnection::HandleRead);
@@ -140,7 +110,6 @@ void RawConnection::Disconnect(StatusPtr status, bool async) {
   }
   status->set_closing();
   mut->unlock();
-  send_timer_.reset();
   if (socket_.get()) {
     socket_->close();
     socket_.reset();
@@ -156,9 +125,24 @@ RawConnection::~RawConnection() {
   VLOG(2) << name() << "~RawConnection";
 }
 
-void RawConnection::StartOOBSend(StatusPtr status) {
-  WaitHandler h(status, send_timer_, this, &RawConnection::OOBSend);
-  send_timer_->Wait(h);
+void RawConnection::Heartbeat(StatusPtr status) {
+  RawConnTrace << "Heartbeat send_package: " << send_package_ << " recv_package: " << recv_package_;
+  char heartbeat = kHeartBeat;
+  boost::system::error_code ec;
+  int n= socket_->send(boost::asio::buffer(&heartbeat, sizeof(heartbeat)),
+                       boost::asio::socket_base::message_out_of_band, ec);
+  if (ec || (n != sizeof(heartbeat))) {
+    RawConnTrace << "OOBSend error, n:" << n << " ec: " << ec.message();
+    Disconnect(status, true);
+    return;
+  }
+  ++send_package_;
+  if (abs(send_package_ - recv_package_) > kHeartbeatUnsyncWindow) {
+    RawConnTrace << "send_package_: " << send_package_ << " recv_package_: " << recv_package_  << " not synced, disconnect";
+    Disconnect(status, true);
+    return;
+  }
+  status->mutex().unlock_shared();
 }
 
 void RawConnection::StartOOBRecv(StatusPtr status) {
@@ -168,30 +152,15 @@ void RawConnection::StartOOBRecv(StatusPtr status) {
                          h);
 }
 
-void RawConnection::OOBSend(StatusPtr status,
-                            const boost::system::error_code &e) {
-  if (e != boost::asio::error::operation_aborted) {
-    char heartbeat = kHeartBeat;
-    boost::system::error_code ec;
-    int n= socket_->send(boost::asio::buffer(&heartbeat, sizeof(heartbeat)),
-                         boost::asio::socket_base::message_out_of_band, ec);
-    if (ec || (n != sizeof(heartbeat))) {
-      VLOG(2) << name() << " : " << "OOBSend error, n:" << n << " ec: " << ec.message();
-      Disconnect(status, true);
-      return;
-    }
-    StartOOBSend(status);
-  }
-  status->mutex().unlock_shared();
-}
-
 void RawConnection::OOBRecv(
     StatusPtr status,
     const boost::system::error_code &e, size_t n) {
+  RawConnTrace << "OOBRecv send_package: " << send_package_ << " recv_package: " << recv_package_ << " e: " << e.message();
   if (e) {
     Disconnect(status, true);
     return;
   }
+  ++recv_package_;
   StartOOBRecv(status);
   status->mutex().unlock_shared();
 }

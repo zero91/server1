@@ -18,7 +18,11 @@ class ThreadPool : public boost::noncopyable, public Executor {
   ThreadPool(const string name, int size) : name_(name), size_(size), timeout_(kDefaultTimeout) {
   }
   ~ThreadPool() {
-    CHECK(!IsRunning());
+    if (IsRunning()) {
+      LOG(WARNING) << "Stop thread pool: " << name_ << " in destructor";
+      Stop();
+      LOG(WARNING) << "Stopped thread pool: " << name_ << " in destructor";
+    }
   }
   void Start() {
     VLOG(1) << name() << " Start, size:" << size_;

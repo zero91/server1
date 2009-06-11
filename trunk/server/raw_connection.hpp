@@ -15,7 +15,6 @@
 #include "boost/thread/shared_mutex.hpp"
 #include "boost/function.hpp"
 #include "boost/smart_ptr.hpp"
-#include "server/timer.hpp"
 class RawConnectionStatus {
  public:
   typedef boost::shared_lock<boost::shared_mutex> Locker;
@@ -98,8 +97,7 @@ class RawConnection : public boost::noncopyable {
     return true;
   }
   void InitSocket(StatusPtr status,
-                  boost::asio::ip::tcp::socket *socket,
-                  boost::shared_ptr<Timer> timer);
+                  boost::asio::ip::tcp::socket *socket);
   const string name() const {
     return name_;
   }
@@ -126,16 +124,15 @@ class RawConnection : public boost::noncopyable {
   inline void HandleRead(StatusPtr status, const boost::system::error_code& e, size_t bytes_transferred);
   inline void HandleWrite(StatusPtr status, const boost::system::error_code& e, size_t byte_transferred);
   virtual bool Decode(size_t byte_transferred) = 0;
-  void StartOOBSend(StatusPtr status);
   void StartOOBRecv(StatusPtr status);
-  void StartOOBWait(StatusPtr status);
+  void Heartbeat(StatusPtr status);
   scoped_ptr<boost::asio::ip::tcp::socket> socket_;
   string name_;
-  boost::shared_ptr<Timer> send_timer_;
 
   char heartbeat_;
 
   static const int kBufferSize = 8192;
+  static const int kHeartbeatUnsyncWindow = 2;
   typedef boost::array<char, kBufferSize> Buffer;
   Buffer buffer_;
 
@@ -143,6 +140,9 @@ class RawConnection : public boost::noncopyable {
   SharedConstBuffers duplex_[2];
   boost::mutex incoming_mutex_;
   boost::shared_ptr<Connection> connection_;
+
+  int send_package_;
+  int recv_package_;
   friend class Connection;
 };
 // Represents a protocol implementation.

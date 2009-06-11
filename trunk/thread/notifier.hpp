@@ -42,6 +42,9 @@ class Notifier : public boost::enable_shared_from_this<Notifier>, public boost::
     }
     return true;
   }
+  int count() const {
+    return count_;
+  }
  private:
   int count_;
   boost::mutex mutex_;

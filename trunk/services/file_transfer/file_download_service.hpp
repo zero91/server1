@@ -6,21 +6,22 @@
 #include <boost/thread/mutex.hpp>
 #include "server/protobuf_connection.hpp"
 #include "services/file_transfer/file_transfer.pb.h"
+#include "server/timer_master.hpp"
 class FileTransferClient;
 class DownloadTasker;
 class FileDownloadServiceImpl : public FileTransfer::FileDownloadService , public Connection::AsyncCloseListener, public boost::enable_shared_from_this<FileDownloadServiceImpl> {
  public:
   FileDownloadServiceImpl(const string &doc_root,
                           int threadpool_size)
-    : doc_root_(doc_root), threadpool_("FileDownloadServiceThreadPool", threadpool_size) {
+    : doc_root_(doc_root),
+      threadpool_(new ThreadPool("FileDownloadServiceThreadPool", threadpool_size)),
+      timer_master_(new TimerMaster) {
   }
   void RegisterDownload(google::protobuf::RpcController *controller,
                         const FileTransfer::RegisterRequest *request,
                         FileTransfer::RegisterResponse *response,
                         google::protobuf::Closure *done);
-  void Stop() {
-    threadpool_.Stop();
-  }
+  void Stop();
   ~FileDownloadServiceImpl();
  private:
   void ConnectionClosed(Connection *channel);
@@ -30,7 +31,8 @@ class FileDownloadServiceImpl : public FileTransfer::FileDownloadService , publi
   DownloadTaskerTable tasker_table_;
   boost::mutex table_mutex_;
   ChannelTable channel_table_;
-  ThreadPool threadpool_;
+  boost::shared_ptr<ThreadPool> threadpool_;
+  boost::shared_ptr<TimerMaster> timer_master_;
   string doc_root_;
 };
 

@@ -24,7 +24,6 @@ class ProtobufConnection : public Connection {
           boost::shared_ptr<Connection> > HandlerFunctor;
   typedef hash_map<uint64, HandlerFunctor> HandlerTable;
  public:
-  static const int kTimeoutMs = 3000;
   explicit ProtobufConnection(const string &name)
     : Connection(name) {
     VLOG(2) << "New protobuf connection: " << name;
@@ -33,10 +32,8 @@ class ProtobufConnection : public Connection {
   ~ProtobufConnection() {
   }
   virtual boost::shared_ptr<Connection> Span(
-      boost::shared_ptr<Timer> timer,
       boost::asio::ip::tcp::socket *socket);
   bool Attach(
-      boost::shared_ptr<Timer> timer,
       ProtobufConnection *service_connection,
       boost::asio::ip::tcp::socket *socket);
 
