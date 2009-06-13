@@ -36,18 +36,41 @@ class FileDownloadServiceImpl : public FileTransfer::FileDownloadService , publi
   string doc_root_;
 };
 
+class FileDownloadNotifierInterface {
+ public:
+  virtual void DownloadComplete(
+      const string &src_filename,
+      const string &local_filename) = 0;
+};
+
+class FileDownloadNotifier : public FileDownloadNotifierInterface {
+ public:
+  FileDownloadNotifier(const string name = "FileDownloadNotifier")
+     : notifier_(new Notifier(name)) {
+  }
+  void Wait() {
+    notifier_->Wait();
+  }
+  void DownloadComplete(const string &src_filename, const string &local_filename) {
+    notifier_->Notify();
+  }
+ protected:
+  boost::shared_ptr<Notifier> notifier_;
+};
+
 class FileDownloadNotifyImpl : public FileTransfer::FileDownloadNotifyService {
-  // The notify signal call back is f(src_filename, local_filename);
- typedef boost::signals2::signal<void()> NotifySignal;
  public:
 
   void DownloadComplete(google::protobuf::RpcController *controller,
                         const FileTransfer::DownloadCompleteRequest *request,
                         FileTransfer::DownloadCompleteResponse *response,
                         google::protobuf::Closure *done);
-  NotifySignal *GetSignal(const string &src_filename, const string &local_filename);
+  void RegisterNotifier(
+      const string &src_filename, const string &local_filename,
+      boost::weak_ptr<FileDownloadNotifierInterface> notifier);
  private:
-  typedef hash_map<string, boost::shared_ptr<NotifySignal> > SignalTable;
-  SignalTable signals_;
+  boost::mutex mutex_;
+  typedef hash_map<string, boost::weak_ptr<FileDownloadNotifierInterface> > NotifierTable;
+  NotifierTable notifiers_;
 };
 #endif  // FILE_DOWNLOAD_SERVICE_HPP_

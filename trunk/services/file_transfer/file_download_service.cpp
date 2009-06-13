@@ -20,8 +20,11 @@ class DownloadTasker {
   int channel_size() const {
     return channels_.size();
   }
-  FileTransferClient *client() const {
-    return client_.get();
+  boost::shared_ptr<FileTransferClient> client() const {
+    return client_;
+  }
+  void reset_client() {
+    client_.reset();
   }
   ~DownloadTasker() {
     VLOG(2) << "~DownloadTasker";
@@ -75,6 +78,7 @@ static string GetRegisterUniqueIdentify(
 void FileDownloadServiceImpl::ConnectionClosed(
     Connection *channel) {
   bool is_idle = false;
+  boost::shared_ptr<FileTransferClient> client;
   {
     boost::mutex::scoped_lock locker(table_mutex_);
     ChannelTable::iterator it = channel_table_.find(channel);
@@ -90,7 +94,9 @@ void FileDownloadServiceImpl::ConnectionClosed(
       if (jt != tasker_table_.end()) {
         jt->second->RemoveChannel(channel);
         if (jt->second->channel_size() == 0) {
-          jt->second->client()->Stop();
+          client = jt->second->client();
+          jt->second->reset_client();
+          threadpool_->PushTask(boost::bind(&FileTransferClient::Stop, client));
           tasker_table_.erase(jt);
           VLOG(0) << "Client arrive zero channel, remove from tasker table";
         } else {
@@ -108,10 +114,17 @@ FileDownloadServiceImpl::~FileDownloadServiceImpl() {
 }
 
 void FileDownloadServiceImpl::Stop() {
-  boost::mutex::scoped_lock locker(table_mutex_);
-  for (DownloadTaskerTable::iterator it = tasker_table_.begin();
-       it != tasker_table_.end(); ++it) {
-    it->second->client()->Stop();
+  vector<boost::shared_ptr<FileTransferClient> > clients;
+  {
+    boost::mutex::scoped_lock locker(table_mutex_);
+    for (DownloadTaskerTable::iterator it = tasker_table_.begin();
+         it != tasker_table_.end(); ++it) {
+      clients.push_back(it->second->client());
+    }
+  }
+
+  for (int i = 0; i < clients.size(); ++i) {
+    clients[i]->Stop();
   }
   if (threadpool_->IsRunning()) {
     threadpool_->Stop();
@@ -162,7 +175,7 @@ void FileDownloadServiceImpl::RegisterDownload(
       tasker_table_.insert(make_pair(unique_identify, tasker));
     } else {
       boost::shared_ptr<DownloadTasker> local_tasker = it->second;
-      FileTransferClient *local_client = local_tasker->client();
+      boost::shared_ptr<FileTransferClient> local_client = local_tasker->client();
       if (local_client->host() == host &&
           local_client->port().empty() &&
           local_client->src_filename() == src_filename &&
@@ -190,34 +203,40 @@ void FileDownloadServiceImpl::RegisterDownload(
   response->set_checkbook_filename(tasker->client()->GetCheckBookDestFileName());
 }
 
-void FileDownloadNotifyImpl::DownloadComplete(google::protobuf::RpcController *controller,
-                                               const FileTransfer::DownloadCompleteRequest *request,
-                                               FileTransfer::DownloadCompleteResponse *response,
-                                               google::protobuf::Closure *done) {
+void FileDownloadNotifyImpl::DownloadComplete(
+    google::protobuf::RpcController *controller,
+    const FileTransfer::DownloadCompleteRequest *request,
+    FileTransfer::DownloadCompleteResponse *response,
+    google::protobuf::Closure *done) {
+  boost::mutex::scoped_lock locker(mutex_);
   ScopedClosure run(done);
   const string src_filename = request->src_filename();
   const string local_filename = request->local_filename();
   response->set_succeed(true);
   string key(src_filename + local_filename);
-  SignalTable::const_iterator it = signals_.find(key);
-  if (it != signals_.end()) {
+  NotifierTable::const_iterator it = notifiers_.find(key);
+  if (it != notifiers_.end()) {
     VLOG(2) << "Call notify for key: " << key;
-    (*it->second)();
+    boost::weak_ptr<FileDownloadNotifierInterface> weak_notifier= it->second;
+    boost::shared_ptr<FileDownloadNotifierInterface> notifier = weak_notifier.lock();
+    if (weak_notifier.expired()) {
+      LOG(WARNING) << "Notify for key: " << key << " expired";
+      return;
+    }
+    notifier->DownloadComplete(src_filename, local_filename);
   } else {
     VLOG(2) << "Can't find notify for key: " << key;
   }
 }
 
-FileDownloadNotifyImpl::NotifySignal *FileDownloadNotifyImpl::GetSignal(
+void FileDownloadNotifyImpl::RegisterNotifier(
     const string &src_filename,
-    const string &local_filename) {
+    const string &local_filename,
+    boost::weak_ptr<FileDownloadNotifierInterface> notifier) {
+  boost::mutex::scoped_lock locker(mutex_);
   string key = src_filename + local_filename;
-  SignalTable::iterator it = signals_.find(key);
-  if (it == signals_.end()) {
-    boost::shared_ptr<NotifySignal> sig(new NotifySignal);
-    signals_.insert(make_pair(key, sig));
-    it = signals_.find(key);
-  }
-  VLOG(2) << "Get notify for key: " << key;
-  return it->second.get();
+  NotifierTable::iterator it = notifiers_.find(key);
+  CHECK(it == notifiers_.end());
+  notifiers_.insert(make_pair(key, notifier));
+  VLOG(2) << "Set notify for key: " << key;
 }

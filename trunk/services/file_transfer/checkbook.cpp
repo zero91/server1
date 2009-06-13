@@ -123,6 +123,17 @@ CheckBook *CheckBook::Load(const string &checkbook_filename) {
   return checkbook;
 }
 
+int CheckBook::Percent() const {
+  int cnt = 0;
+  for (int i = 0; i < slice_size(); ++i) {
+    if (slice(i).finished()) {
+      ++cnt;
+    }
+  }
+  VLOG(2) << "Cnt: " << cnt;
+  return cnt * 1000 / slice_size();
+}
+
 bool CheckBook::Save(const FileTransfer::CheckBook *checkbook,
                      const string &filename) {
   ofstream output(filename.c_str(), ios::out | ios::trunc | ios::binary);

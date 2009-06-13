@@ -109,7 +109,6 @@ class FileTransferTest : public testing::Test {
   boost::shared_ptr<FileDownloadServiceImpl> file_download_service_;
 };
 
-/*
 TEST_F(FileTransferTest, Test1) {
   const int kFileSize = CheckBook::GetSliceSize() + 1;
   string content;
@@ -127,8 +126,9 @@ TEST_F(FileTransferTest, Test1) {
       new FileDownloadNotifyImpl);
   client_connection_->RegisterService(local_file_transfer_service.get());
   client_connection_->RegisterService(local_file_notify.get());
-  boost::shared_ptr<Notifier> notifier(new Notifier);
-  local_file_notify->GetSignal(kTestFile, local_filename)->connect(notifier->notify_handler());
+  boost::shared_ptr<FileDownloadNotifier> notifier(
+      new FileDownloadNotifier("Test1Notifier"));
+  local_file_notify->RegisterNotifier(kTestFile, local_filename, notifier);
   CHECK(!client_connection_->IsConnected());
   CHECK(client_connection_->Connect());
   client_stub_->RegisterDownload(
@@ -144,7 +144,6 @@ TEST_F(FileTransferTest, Test1) {
   boost::filesystem::remove(kTestFile);
   boost::filesystem::remove(dest_path);
 }
-*/
 
 TEST_F(FileTransferTest, Test2) {
   const int kConnectionNumber = FLAGS_num_connections;
@@ -165,8 +164,10 @@ TEST_F(FileTransferTest, Test2) {
       new FileDownloadNotifyImpl);
   client_connection_->RegisterService(local_file_transfer_service.get());
   client_connection_->RegisterService(local_file_notify.get());
-  boost::shared_ptr<Notifier> notifier(new Notifier("FinishedNotify"));
-  local_file_notify->GetSignal(kTestFile, local_filename)->connect(notifier->notify_handler());
+  boost::shared_ptr<FileDownloadNotifier> notifier(
+      new FileDownloadNotifier("FinishedNotify"));
+  local_file_notify->RegisterNotifier(
+      kTestFile, local_filename, notifier);
   vector<boost::shared_ptr<ClientConnection> > connections;
   for (int i = 0; i < kConnectionNumber; ++i) {
     controller.Reset();

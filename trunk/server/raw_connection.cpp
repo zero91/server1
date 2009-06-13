@@ -96,7 +96,7 @@ void RawConnection::InitSocket(
 
 void RawConnection::Disconnect(StatusPtr status, bool async) {
   if (status->closing()) {
-    RawConnTrace << "Already closing";
+    VLOG(2) << "Already closing";
     return;
   }
   boost::shared_mutex *mut = &status->mutex();
@@ -104,7 +104,7 @@ void RawConnection::Disconnect(StatusPtr status, bool async) {
   mut->lock_upgrade();
   mut->unlock_upgrade_and_lock();
   if (status->closing()) {
-    RawConnTrace << "Already already closing";
+    VLOG(2) << "Already already closing";
     mut->unlock();
     return;
   }

@@ -21,6 +21,8 @@ class CheckBook : public FileTransfer::CheckBook {
   static int GetSliceSize() {
     return kSliceSize;
   }
+  // The percent * 1000, 1000 means transfer finished.
+  int Percent() const;
  private:
   static const int kSliceSize = 640 * 1024;
   static string InternalGetCheckBookSrcFileName(

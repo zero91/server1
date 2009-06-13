@@ -2,41 +2,29 @@ Import('env')
 file_transfer_env = env.Copy()
 file_transfer_env.Append(LIBPATH=['$objroot/services/file_transfer',
 '$objroot/net', '$objroot/server'])
-file_transfer_env.Prepend(LIBS=['file_transfer_pb', 'server', 'meta_pb',
-'file_download_service', 'file_transfer_service', 'file_transfer_client', 'checkbook', 'checkbook_pb', 'net'])
+file_transfer_env.Prepend(LIBS=['file_transfer_pb',
+'file_transfer', 'server', 'meta_pb', 'checkbook_pb', 'net'])
 ProtoLib(file_transfer_env, 'checkbook')
 ProtoLib(file_transfer_env, 'file_transfer')
 file_transfer_env.StaticLibrary(
-  target = 'checkbook',
-  source = ['checkbook.hpp',
-            'checkbook.cpp',
-   ]
-   )
+  target = 'file_transfer',
+  source = [
+  'checkbook.hpp',
+  'checkbook.cpp',
+  'file_transfer_client.hpp',
+  'file_transfer_client.cpp',
+  'file_transfer_service.hpp',
+  'file_transfer_service.cpp',
+  'file_download_service.hpp',
+  'file_download_service.cpp',
+  'file_download_client.hpp',
+  'file_download_client.cpp'])
 
-file_transfer_env.StaticLibrary(
-  target = 'file_transfer_client',
-  source = ['file_transfer_client.hpp',
-            'file_transfer_client.cpp',
-   ]
-   )
-
-file_transfer_env.StaticLibrary(
-  target = 'file_transfer_service',
-  source = ['file_transfer_service.hpp',
-            'file_transfer_service.cpp',
-   ]
-   )
-
-file_transfer_env.StaticLibrary(
-  target = 'file_download_service',
-  source = ['file_download_service.hpp',
-            'file_download_service.cpp',
-   ]
-   )
 Test(file_transfer_env, 'checkbook')
 Test(file_transfer_env, 'file_transfer_service')
 Test(file_transfer_env, 'file_transfer_client')
 Test(file_transfer_env, 'file_download_service')
+Test(file_transfer_env, 'file_download_client')
 
 file_transfer_env.Program(
   target = 'file_download_server',

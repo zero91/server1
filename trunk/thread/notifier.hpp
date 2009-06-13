@@ -19,13 +19,18 @@ class Notifier : public boost::enable_shared_from_this<Notifier>, public boost::
   }
   void Dec(int cnt) {
     boost::mutex::scoped_lock locker(mutex_);
-    count_ -= cnt;
+    if (cnt > 0 && count_ >= cnt) {
+      count_ -= cnt;
+    } else if (cnt < 0) {
+      count_ -= cnt;
+    }
     VLOG(2) << name_ << " : " << "count: " << count_;
-    if (count_ <= 0) {
+    if (count_ == 0) {
       notify_.notify_all();
       notified_ = true;
       VLOG(2) << name_ << " : " << "Notifed";
     }
+    CHECK_GE(count_, 0);
   }
   // Return true when notified, otherwise return false.
   bool Wait() {

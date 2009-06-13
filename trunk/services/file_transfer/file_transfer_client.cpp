@@ -104,7 +104,9 @@ void FileTransferClient::ChannelClosed(
       status->set_status(SliceStatus::IDLE);
     }
   }
-  ScheduleTask();
+  if (IsRunning()) {
+    ScheduleTask();
+  }
 }
 
 void FileTransferClient::PushChannel(Connection *channel) {
@@ -210,14 +212,7 @@ int FileTransferClient::Percent() {
   if (finished()) {
     return 1000;
   }
-  int cnt = 0;
-  for (int i = 0; i < checkbook_->slice_size(); ++i) {
-    if (checkbook_->slice(i).finished()) {
-      ++cnt;
-    }
-  }
-  VLOG(2) << "Cnt: " << cnt << " status: " << status_;
-  return cnt * 1000 / checkbook_->slice_size();
+  return checkbook_->Percent();
 }
 
 void FileTransferClient::ScheduleTask() {
@@ -275,7 +270,9 @@ void FileTransferClient::SyncCheckBook() {
     if (tasker->IsConnected()) {
       transfer_task_queue_.Push(tasker);
     }
-    ScheduleTask();
+    if (IsRunning()) {
+      ScheduleTask();
+    }
   } else {
     status_ = PREPARE_SLICE;
     checkbook_->mutable_meta()->set_synced_with_dest(true);
