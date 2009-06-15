@@ -16,12 +16,10 @@ void TimerMaster::Stop() {
     if (stop_) {
       return;
     }
-    VLOG(2) << "Stop TimerMaster";
     stop_ = true;
   }
 
   thread_->join();
-  DestroyAllTimers();
   VLOG(2) << "Stopped TimerMaster";
 }
 
@@ -91,13 +89,18 @@ void TimerMaster::Update(int jiffies) {
     ++timer_jiffies_;
     for (vector<pair<TimerSlot*, boost::shared_ptr<Timer> > >::iterator it =
          timers.begin(); it != timers.end(); ++it) {
-      TimerSlot *s = it->first;
-      boost::shared_ptr<Timer> timer = it->second;
-      timer->Expired();
-      if (timer->period()) {
-        InternalAddTimer(s, timer, timer->timeout() + old_timer_jiffies);
-      } else {
-        delete s;
+      it->second->Expired();
+    }
+    {
+      for (int i = 0; i < timers.size(); ++i) {
+        TimerSlot *s = timers[i].first;
+        boost::shared_ptr<Timer> timer = timers[i].second;
+        if (timer->period()) {
+          boost::mutex::scoped_lock lock(mutex_);
+          InternalAddTimer(s, timer, timer->timeout() + old_timer_jiffies);
+        } else {
+          delete s;
+        }
       }
     }
   }
@@ -109,7 +112,7 @@ void TimerMaster::InternalAddTimer(
     int jiffies) {
   int i = 0;
   int idx  = jiffies - timer_jiffies_;
-  TList *v;
+  TList *v = NULL;
   int expires = jiffies;
   uint64 upper = 1;
   for (int i = 0; i < arraysize(vecs_); ++i) {
@@ -121,6 +124,7 @@ void TimerMaster::InternalAddTimer(
     }
     expires >>= kTVBits;
   }
+  CHECK(v != NULL);
   slot->weak_timer = weak_timer;
   slot->jiffies = jiffies;
   v->push_back(*slot);

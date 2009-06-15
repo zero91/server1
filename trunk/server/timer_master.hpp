@@ -21,6 +21,10 @@ class TimerMaster {
     if (!stop_) {
       Stop();
     }
+    {
+      boost::mutex::scoped_lock lock(mutex_);
+      DestroyAllTimers();
+    }
   }
  protected:
   static const int kTVBits = 8;
