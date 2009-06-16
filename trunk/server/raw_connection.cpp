@@ -95,11 +95,12 @@ void RawConnection::InitSocket(
 }
 
 void RawConnection::Disconnect(StatusPtr status, bool async) {
+  boost::shared_mutex *mut = &status->mutex();
   if (status->closing()) {
     VLOG(2) << "Already closing";
+    mut->unlock_shared();
     return;
   }
-  boost::shared_mutex *mut = &status->mutex();
   mut->unlock_shared();
   mut->lock_upgrade();
   mut->unlock_upgrade_and_lock();
