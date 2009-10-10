@@ -86,11 +86,11 @@ int main(int argc, char* argv[]) {
   sigfillset(&mask); /* Mask all allowed signals */
   int rc = pthread_sigmask(SIG_SETMASK, &mask, NULL);
   VLOG(2) << "Signal masked" << rc;
-  scoped_ptr<ProtobufConnection> server_connection;
-  scoped_ptr<Server> server;
+  boost::shared_ptr<ProtobufConnection> server_connection;
+  boost::shared_ptr<Server> server;
   VLOG(2) << "New server connection";
   server_connection.reset(new ProtobufConnection("Server"));
-  server.reset(new Server(FLAGS_num_threads, 1));
+  server.reset(new Server(1, FLAGS_num_threads));
   EchoService2ServerImpl echo_service;
   server_connection->RegisterService(&echo_service);
   server->Listen(FLAGS_address, FLAGS_port, server_connection.get());
