@@ -47,8 +47,8 @@ DEFINE_string(address, "localhost", "The test server");
 DEFINE_string(port, "7890", "The test server");
 DEFINE_int32(num_threads, 1, "The test server thread number");
 DEFINE_string(doc_root, ".", "The document root of the file transfer");
-DECLARE_bool(logtostderr);
-DECLARE_int32(v);
+//DECLARE_bool(logtostderr);
+//DECLARE_int32(v);
 int main(int argc, char* argv[]) {
   FLAGS_v = 4;
   FLAGS_logtostderr = true;

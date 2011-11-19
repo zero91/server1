@@ -53,8 +53,8 @@ DEFINE_string(port, "7890", "The test server");
 DEFINE_int32(num_threads, 1, "The test server thread number");
 DEFINE_int32(num_connections, 80, "The test server thread number");
 DEFINE_string(local_root, ".", "The document root of the file transfer");
-DECLARE_bool(logtostderr);
-DECLARE_int32(v);
+//DECLARE_bool(logtostderr);
+//DECLARE_int32(v);
 void CreateFile(int file_size, string *content = NULL) {
   boost::iostreams::mapped_file_params p(kTestFile);
   p.mode = std::ios_base::out | std::ios_base::trunc;

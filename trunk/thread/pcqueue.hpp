@@ -37,6 +37,7 @@
 #include <boost/thread/condition.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
+#include <deque>
 template <class Type>
 class PCQueue : public boost::noncopyable, public boost::enable_shared_from_this<PCQueue<Type> > {
  public:
