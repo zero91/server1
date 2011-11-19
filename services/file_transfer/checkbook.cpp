@@ -60,7 +60,8 @@ CheckBook *CheckBook::Create(
   meta->set_synced_with_dest(false);
   string mac_address = GetMacAddress();
   meta->set_src_mac_address(mac_address);
-  boost::filesystem::path p(src_filename, boost::filesystem::native);
+  //boost::filesystem::path p(src_filename, boost::filesystem::native);
+  boost::filesystem::path p(src_filename);
   if (!boost::filesystem::exists(p)) {
     LOG(WARNING) << "Not find: " << src_filename;
     delete checkbook;

@@ -46,8 +46,8 @@ DEFINE_string(address, "localhost","The address");
 DEFINE_string(port, "6789","The port");
 DEFINE_int32(num_threads, 4,"The thread size");
 DEFINE_int32(num_connections, 4, "The test server thread number");
-DECLARE_bool(logtostderr);
-DECLARE_int32(v);
+//DECLARE_bool(logtostderr);
+//DECLARE_int32(v);
 class EchoService2ClientImpl : public Hello::EchoService2 {
  public:
   EchoService2ClientImpl(boost::shared_ptr<PCQueue<bool> > pcqueue) : called_(0), pcqueue_(pcqueue) {

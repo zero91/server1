@@ -45,8 +45,8 @@
 DEFINE_string(address, "localhost","The address");
 DEFINE_string(port, "6789","The port");
 DEFINE_int32(num_threads, 4,"The thread size");
-DECLARE_bool(logtostderr);
-DECLARE_int32(v);
+//DECLARE_bool(logtostderr);
+//DECLARE_int32(v);
 class EchoService2ServerImpl : public Hello::EchoService2 {
  public:
   EchoService2ServerImpl() : called_(0), i_(0) {

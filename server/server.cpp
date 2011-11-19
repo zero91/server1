@@ -106,7 +106,7 @@ void Server::Listen(const string &address,
   timer_master_.Start();
   const string host(address + "::" + port);
   boost::asio::ip::tcp::acceptor *acceptor = new boost::asio::ip::tcp::acceptor(io_service_pool_.get_io_service());
-  boost::asio::ip::tcp::resolver resolver(acceptor->io_service());
+  boost::asio::ip::tcp::resolver resolver(acceptor->get_io_service());
   boost::asio::ip::tcp::resolver::query query(address, port);
   boost::asio::ip::tcp::endpoint endpoint = *resolver.resolve(query);
   acceptor->open(endpoint.protocol());

@@ -55,7 +55,7 @@ class EVP {
   template <class Type>
   inline Type digest() const {
     Type ret;
-    for (int i = 0; i < min(md_len_, sizeof(Type)); ++i) {
+    for (int i = 0; i < min(md_len_, (unsigned int)sizeof(Type)); ++i) {
       ret = (ret) << 8 | md_value_[i];
     }
     return ret;

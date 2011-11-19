@@ -115,8 +115,8 @@ void TransferInfo::SaveCheckBook(const string &doc_root) {
   }
   boost::filesystem::path checkbook_dest_filename(doc_root);
   checkbook_dest_filename /= this->checkbook_dest_filename();
-  checkbook_->Save(checkbook_dest_filename.file_string());
-  VLOG(1) << "SaveCheckbook to: " << checkbook_dest_filename.file_string();
+  checkbook_->Save(checkbook_dest_filename.string());
+  VLOG(1) << "SaveCheckbook to: " << checkbook_dest_filename.string();
 }
 
 bool TransferInfo::Save(const string &doc_root) {
@@ -141,7 +141,7 @@ bool TransferInfo::Save(const string &doc_root) {
   int file_size = last_slice.offset() + last_slice.length();
   boost::filesystem::path dest_filename(doc_root);
   dest_filename /= checkbook_->meta().dest_filename();
-  boost::iostreams::mapped_file_params p(dest_filename.file_string());
+  boost::iostreams::mapped_file_params p(dest_filename.string());
   p.mode = std::ios_base::out | std::ios_base::trunc;
   p.new_file_size = file_size;
   boost::iostreams::mapped_file out;
@@ -160,7 +160,7 @@ bool TransferInfo::Save(const string &doc_root) {
       LOG(WARNING) << "Slice file: " << slice_name << " don't existing";
       return false;
     }
-    ifstream in(slice_name.file_string().c_str(), ios::in | ios::binary);
+    ifstream in(slice_name.string().c_str(), ios::in | ios::binary);
     if (!slice_request.ParseFromIstream(&in)) {
       LOG(WARNING) << "Fail to parse slice file: " << slice_name;
       return false;
@@ -205,7 +205,7 @@ bool FileTransferServiceImpl::SaveSliceRequest(
 
   boost::filesystem::path filename(doc_root_);
   filename /= GetSliceName(&slice_request->slice());
-  ofstream output(filename.file_string().c_str(), ios::out | ios::trunc | ios::binary);
+  ofstream output(filename.string().c_str(), ios::out | ios::trunc | ios::binary);
   if (!slice_request->SerializeToOstream(&output)) {
     LOG(WARNING) << "Failed to save the CheckBook to:" << filename
                  << " error: " << strerror(errno);
@@ -224,7 +224,7 @@ void FileTransferServiceImpl::ReceiveCheckBook(
   boost::filesystem::path dest_checkbook_filename(doc_root_);
   dest_checkbook_filename /= CheckBook::GetCheckBookDestFileName(&checkbook.meta());
   VLOG(1) << "Receive checkbook: " << dest_checkbook_filename;
-  CheckBook::Save(&checkbook, dest_checkbook_filename.file_string());
+  CheckBook::Save(&checkbook, dest_checkbook_filename.string());
   response->set_succeed(true);
 }
 
@@ -263,7 +263,7 @@ boost::shared_ptr<TransferInfo> FileTransferServiceImpl::LoadTransferInfoFromDis
     const string &checkbook_dest_filename) {
   boost::filesystem::path path(doc_root_);
   path /= checkbook_dest_filename;
-  return TransferInfo::Load(path.file_string());
+  return TransferInfo::Load(path.string());
 }
 
 boost::shared_ptr<TransferInfo> FileTransferServiceImpl::GetTransferInfo(

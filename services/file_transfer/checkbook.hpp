@@ -31,7 +31,7 @@
 #ifndef CHECKBOOK_HPP_
 #define CHECKBOOK_HPP_
 #include "base/base.hpp"
-#include "services/file_transfer/checkbook.pb.h"
+#include "checkbook.pb.h"
 class CheckBook : public FileTransfer::CheckBook {
  public:
   // New a checkbook or load the existing checkbook.
